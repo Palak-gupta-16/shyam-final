@@ -221,13 +221,6 @@ const generateInvoiceSchema = Joi.object({
       'any.required': 'Invoice amount is required'
     }),
 
-  // pdfUrl: Joi.string()
-  //   .uri()
-  //   .optional()
-  //   .messages({
-  //     'string.uri': 'PDF URL must be a valid URL'
-  //   }),
-
   RatePerUnit: Joi.number()
     .min(0)
     .optional()
@@ -252,7 +245,69 @@ const generateInvoiceSchema = Joi.object({
     .optional()
     .messages({
       'string.base': 'Invoice notes must be a string'
-    })
+    }),
+
+  // Billing party details
+  billingPartyName: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  billingPartyAddress: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  billingPartyGSTIN: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  billingPartyContact: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  billingPartyEmail: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  billingPartyState: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  billingPartyPincode: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  // Company details
+  companyName: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  companyAddress: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  companyGSTIN: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  companyContact: Joi.string()
+    .trim()
+    .allow('')
+    .optional(),
+
+  companyEmail: Joi.string()
+    .trim()
+    .allow('')
+    .optional()
 });
 
 

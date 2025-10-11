@@ -18,8 +18,10 @@ import OrderCard from '../components/orders/OrderCard';
 import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
 import InventoryDropdown from '../components/common/InventoryDropdown';
-import { ordersAPI } from '../services/api';
-import { Order, OrderStatus } from '../types';
+import FareModal from '../components/fares/FareModal';
+import InvoiceModal from '../components/invoices/InvoiceModal';
+import { ordersAPI, fareAPI } from '../services/api';
+import { Order, OrderStatus, Fare } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 const Orders: React.FC = () => {
@@ -33,9 +35,13 @@ const Orders: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showActionModal, setShowActionModal] = useState(false);
+  const [showFareModal, setShowFareModal] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedFare, setSelectedFare] = useState<Fare | null>(null);
   const [actionType, setActionType] = useState<string>('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [orderFares, setOrderFares] = useState<{[key: string]: Fare}>({});
 
 
 
@@ -72,8 +78,16 @@ const Orders: React.FC = () => {
     const order = orders.find(o => o._id === orderId);
     if (order) {
       setSelectedOrder(order);
-      setActionType(action);
-      setShowActionModal(true);
+      
+      if (action === 'view-invoice' || action === 'generate-invoice') {
+        setShowInvoiceModal(true);
+      } else if (action === 'move-to-gate') {
+        // Handle move to gate - this should mark the order as ready for exit
+        handleMoveToGate(order);
+      } else {
+        setActionType(action);
+        setShowActionModal(true);
+      }
     }
   };
 
@@ -126,6 +140,86 @@ const Orders: React.FC = () => {
       fetchOrders();
     } catch (error) {
       console.error('Error executing action:', error);
+    }
+  };
+
+  // Fare-related handlers
+  const handleRecordFare = (order: Order) => {
+    if (!hasRole(['Accounting', 'Director'])) {
+      alert('You need Accounting or Director role to record vehicle fares.');
+      return;
+    }
+    
+    setSelectedOrder(order);
+    setSelectedFare(null);
+    setShowFareModal(true);
+  };
+
+  const handleFareSuccess = () => {
+    fetchOrderFares();
+    fetchOrders();
+  };
+
+  // Fetch fares for current orders
+  const fetchOrderFares = useCallback(async () => {
+    try {
+      // Only fetch fares for orders that need billing or have invoices
+      const ordersNeedingFares = orders.filter(order => 
+        order.status === 'ready_for_billing' || 
+        order.status === 'ready_for_billing_purchase' ||
+        order.invoice // Orders with invoices might have fares
+      );
+
+      const farePromises = ordersNeedingFares.map(async (order) => {
+        try {
+          const fare = await fareAPI.getFareByOrderId(order._id);
+          return { orderId: order._id, fare };
+        } catch (error) {
+          return { orderId: order._id, fare: null };
+        }
+      });
+
+      const fareResults = await Promise.all(farePromises);
+      const fareMap: {[key: string]: Fare} = {};
+      
+      fareResults.forEach(result => {
+        if (result.fare) {
+          fareMap[result.orderId] = result.fare;
+        }
+      });
+
+      setOrderFares(fareMap);
+    } catch (error) {
+      console.error('Error fetching order fares:', error);
+    }
+  }, [orders]);
+
+  useEffect(() => {
+    if (orders.length > 0) {
+      fetchOrderFares();
+    }
+  }, [fetchOrderFares]);
+
+  // Check if an order has fare recorded
+  const orderHasFare = (orderId: string) => {
+    return !!orderFares[orderId];
+  };
+
+  // Handle move to gate
+  const handleMoveToGate = async (order: Order) => {
+    if (!order.invoice) {
+      alert('Invoice must be generated before moving to gate.');
+      return;
+    }
+
+    if (window.confirm(`Move Order #${order.orderNumber} to gate for exit processing?`)) {
+      try {
+        await ordersAPI.moveToGate(order._id);
+        fetchOrders();
+      } catch (error) {
+        console.error('Error moving order to gate:', error);
+        alert('Failed to move order to gate. Please try again.');
+      }
     }
   };
 
@@ -274,6 +368,9 @@ const Orders: React.FC = () => {
                 order={order}
                 onActionClick={handleActionClick}
                 showActions={true}
+                hasFare={orderHasFare(order._id)}
+                onRecordFare={handleRecordFare}
+                pageType="orders"
               />
             ))}
           </div>
@@ -316,6 +413,34 @@ const Orders: React.FC = () => {
           order={selectedOrder}
           actionType={actionType}
           onExecute={executeAction}
+        />
+
+        {/* Fare Modal */}
+        <FareModal
+          isOpen={showFareModal}
+          onClose={() => {
+            setShowFareModal(false);
+            setSelectedOrder(null);
+            setSelectedFare(null);
+          }}
+          order={selectedOrder}
+          existingFare={selectedFare}
+          onSuccess={handleFareSuccess}
+        />
+
+        {/* Invoice Modal */}
+        <InvoiceModal
+          isOpen={showInvoiceModal}
+          onClose={() => {
+            setShowInvoiceModal(false);
+            setSelectedOrder(null);
+          }}
+          order={selectedOrder}
+          onSuccess={() => {
+            fetchOrders();
+            setShowInvoiceModal(false);
+          }}
+          onRecordFare={handleRecordFare}
         />
       </div>
     </DashboardLayout>

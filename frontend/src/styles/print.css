@@ -1,0 +1,58 @@
+/* Print styles for invoices */
+@media print {
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
+  }
+  
+  /* Show only the print content */
+  .print-invoice, .print-invoice * {
+    visibility: visible;
+  }
+  
+  .print-invoice {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  /* Page settings */
+  @page {
+    margin: 0.5in;
+    size: A4;
+  }
+  
+  /* Remove shadows and borders for print */
+  .print-invoice {
+    box-shadow: none !important;
+    border: none !important;
+  }
+  
+  /* Ensure proper spacing */
+  .print-invoice table {
+    page-break-inside: avoid;
+  }
+  
+  .print-invoice .page-break {
+    page-break-before: always;
+  }
+  
+  /* Hide print buttons */
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Ensure text is black for printing */
+  .print-invoice * {
+    color: black !important;
+    background: white !important;
+  }
+  
+  /* Table borders for print */
+  .print-invoice table,
+  .print-invoice th,
+  .print-invoice td {
+    border: 1px solid black !important;
+  }
+}

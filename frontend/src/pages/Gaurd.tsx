@@ -180,6 +180,7 @@ const fetchOrders = useCallback(async () => {
                 order={order}
                 onActionClick={handleActionClick}
                 showActions={true}
+                pageType="gate"
               />
             ))}
           </div>

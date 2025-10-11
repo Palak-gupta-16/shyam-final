@@ -53,6 +53,22 @@ export interface Order {
     TaxPercentage?: number;
     invoiceNotes?: string;
     pdfUrl?: string;
+    billingParty?: {
+      name?: string;
+      address?: string;
+      gstin?: string;
+      contact?: string;
+      email?: string;
+      state?: string;
+      pincode?: string;
+    };
+    company?: {
+      name?: string;
+      address?: string;
+      gstin?: string;
+      contact?: string;
+      email?: string;
+    };
   };
   createdBy: string;
   history: OrderHistory[];

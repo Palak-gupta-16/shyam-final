@@ -182,9 +182,26 @@ getOrdersByStatus: async (params?: {
     amount: number; 
     RatePerUnit?: number; 
     TaxPercentage?: number; 
-    invoiceNotes?: string; 
+    invoiceNotes?: string;
+    billingPartyName?: string;
+    billingPartyAddress?: string;
+    billingPartyGSTIN?: string;
+    billingPartyContact?: string;
+    billingPartyEmail?: string;
+    billingPartyState?: string;
+    billingPartyPincode?: string;
+    companyName?: string;
+    companyAddress?: string;
+    companyGSTIN?: string;
+    companyContact?: string;
+    companyEmail?: string;
   }): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.post(`/orders/${orderId}/generate-invoice`, data);
+    return response.data;
+  },
+
+  moveToGate: async (orderId: string): Promise<ApiResponse<Order>> => {
+    const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}/move-to-gate`);
     return response.data;
   },
 

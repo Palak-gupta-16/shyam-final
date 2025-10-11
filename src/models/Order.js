@@ -156,16 +156,70 @@ const orderSchema = new mongoose.Schema({
       trim: true
     },
     RatePerUnit:{
-type:Number,
-min:0
+      type: Number,
+      min: 0
     },
     TaxPercentage:{
-      type:Number,
-      min:0
+      type: Number,
+      min: 0
     },
     invoiceNotes: {
       type: String,
       trim: true
+    },
+    // Billing party details
+    billingParty: {
+      name: {
+        type: String,
+        trim: true
+      },
+      address: {
+        type: String,
+        trim: true
+      },
+      gstin: {
+        type: String,
+        trim: true
+      },
+      contact: {
+        type: String,
+        trim: true
+      },
+      email: {
+        type: String,
+        trim: true
+      },
+      state: {
+        type: String,
+        trim: true
+      },
+      pincode: {
+        type: String,
+        trim: true
+      }
+    },
+    // Company details
+    company: {
+      name: {
+        type: String,
+        trim: true
+      },
+      address: {
+        type: String,
+        trim: true
+      },
+      gstin: {
+        type: String,
+        trim: true
+      },
+      contact: {
+        type: String,
+        trim: true
+      },
+      email: {
+        type: String,
+        trim: true
+      }
     }
   },
   createdBy: {

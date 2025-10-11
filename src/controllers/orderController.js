@@ -911,7 +911,24 @@ const recordFinalWeight = async (req, res) => {
 const generateInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount, RatePerUnit, TaxPercentage, invoiceNotes } = req.body;
+    const { 
+      amount, 
+      RatePerUnit, 
+      TaxPercentage, 
+      invoiceNotes,
+      billingPartyName,
+      billingPartyAddress,
+      billingPartyGSTIN,
+      billingPartyContact,
+      billingPartyEmail,
+      billingPartyState,
+      billingPartyPincode,
+      companyName,
+      companyAddress,
+      companyGSTIN,
+      companyContact,
+      companyEmail
+    } = req.body;
 
     const order = await Order.findById(id);
     if (!order) {
@@ -930,25 +947,36 @@ const generateInvoice = async (req, res) => {
     // Generate bill number
     const billNumber = Math.floor(Math.random() * 1000000);
 
-    // Update invoice
+    // Update invoice with all details
     order.invoice = {
       billNumber,
       amount,
-       RatePerUnit,
-  TaxPercentage,
-      invoiceNotes
+      RatePerUnit,
+      TaxPercentage,
+      invoiceNotes,
+      billingParty: {
+        name: billingPartyName || order.customerOrSupplier,
+        address: billingPartyAddress || '',
+        gstin: billingPartyGSTIN || '',
+        contact: billingPartyContact || '',
+        email: billingPartyEmail || '',
+        state: billingPartyState || '',
+        pincode: billingPartyPincode || ''
+      },
+      company: {
+        name: companyName || 'BHOPAL ISPAT PVT. LTD.',
+        address: companyAddress || 'Survey No.402/1/1/1, Sukhlisewania,\nVidisha Road, BHOPAL - 462023',
+        gstin: companyGSTIN || '23AAKCB2691R1Z3',
+        contact: companyContact || '9827053499',
+        email: companyEmail || 'bhopalispatlimited@gmail.com'
+      }
     };
 
-    // Update status
-    const newStatus = order.type === 'dispatch' 
-      ? 'ready_for_dispatch'
-      : 'ready_for_exit_purchase';
-
-    order.status = newStatus;
+    // Don't change status when generating invoice - only add to history
     order.history.push({
       by: req.user._id,
       from: order.status,
-      to: newStatus,
+      to: order.status,
       note: `Invoice generated: Bill #${billNumber}, Amount: ₹${amount}`,
       at: new Date()
     });
@@ -963,6 +991,50 @@ const generateInvoice = async (req, res) => {
   } catch (error) {
     console.error('Generate invoice error:', error);
     res.status(500).json({ message: 'Server error generating invoice' });
+  }
+};
+
+// Move order to gate (change status to ready for dispatch/exit)
+const moveToGate = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // Check if invoice exists
+    if (!order.invoice) {
+      return res.status(400).json({ 
+        message: 'Invoice must be generated before moving to gate.' 
+      });
+    }
+
+    // Update status to ready for dispatch/exit
+    const newStatus = order.type === 'dispatch' 
+      ? 'ready_for_dispatch'
+      : 'ready_for_exit_purchase';
+
+    order.status = newStatus;
+    order.history.push({
+      by: req.user._id,
+      from: order.status,
+      to: newStatus,
+      note: 'Order moved to gate for exit processing',
+      at: new Date()
+    });
+
+    await order.save();
+
+    res.json({
+      message: 'Order moved to gate successfully',
+      order
+    });
+
+  } catch (error) {
+    console.error('Move to gate error:', error);
+    res.status(500).json({ message: 'Server error moving order to gate' });
   }
 };
 
@@ -1017,5 +1089,6 @@ module.exports = {
   unloadingComplete,
   recordFinalWeight,
   generateInvoice,
+  moveToGate,
   exitOrder
 };

@@ -95,6 +95,13 @@ router.post('/:id/generate-invoice',
   orderController.generateInvoice
 );
 
+// Move order to gate
+router.patch('/:id/move-to-gate',
+  authorize('Accounting', 'General_Manager', 'Director'),
+  logActivity('ORDER_MOVE_TO_GATE', 'Order'),
+  orderController.moveToGate
+);
+
 // Exit order
 router.patch('/:id/exit',
   authorize('Guard','Director'),

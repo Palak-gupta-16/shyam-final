@@ -22,6 +22,7 @@ import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
 import FareModal from '../components/fares/FareModal';
 import FareTable from '../components/fares/FareTable';
+import InvoiceModal from '../components/invoices/InvoiceModal';
 import { ordersAPI, fareAPI } from '../services/api';
 import { Order, OrderStatus, Fare } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -44,6 +45,7 @@ const Accounts: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showActionModal, setShowActionModal] = useState(false);
   const [showFareModal, setShowFareModal] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedFare, setSelectedFare] = useState<Fare | null>(null);
   const [actionType, setActionType] = useState<string>('');
@@ -59,17 +61,23 @@ const fetchOrders = useCallback(async () => {
     const params: any = {
       page: currentPage,
       perPage: 12,
-      status: [
-        'ready_for_billing',
-        'ready_for_billing_purchase',
-      ] // Default statuses as array
+      // Show all orders for accounting - they need to see orders with invoices
+      status: 'ready_for_billing,ready_for_billing_purchase,ready_for_dispatch,ready_for_exit_purchase,completed'
     };
 
-    if (selectedStatus !== 'all') params.status = [selectedStatus];
+    if (selectedStatus !== 'all') params.status = selectedStatus;
     if (selectedType !== 'all') params.type = selectedType;
 
-    const response = await ordersAPI.getOrdersByStatus(params);
-    setOrders(response.orders || []);
+    const response = await ordersAPI.getOrders(params);
+    
+    // Filter to show orders that have invoices or are ready for billing
+    const filteredOrders = (response.orders || []).filter(order => 
+      order.invoice || 
+      order.status === 'ready_for_billing' || 
+      order.status === 'ready_for_billing_purchase'
+    );
+    
+    setOrders(filteredOrders);
     setTotalPages(response.pagination?.totalPages || 1);
   } catch (error) {
     console.error('Error fetching orders:', error);
@@ -116,8 +124,13 @@ const fetchOrders = useCallback(async () => {
     const order = orders.find(o => o._id === orderId);
     if (order) {
       setSelectedOrder(order);
-      setActionType(action);
-      setShowActionModal(true);
+      
+      if (action === 'view-invoice' || action === 'generate-invoice') {
+        setShowInvoiceModal(true);
+      } else {
+        setActionType(action);
+        setShowActionModal(true);
+      }
     }
   };
 
@@ -353,6 +366,7 @@ const fetchOrders = useCallback(async () => {
                 showActions={true}
                 hasFare={orderHasFare(order._id)}
                 onRecordFare={handleRecordFare}
+                pageType="accounts"
               />
             ))}
           </div>
@@ -452,6 +466,21 @@ const fetchOrders = useCallback(async () => {
           order={selectedOrder}
           existingFare={selectedFare}
           onSuccess={handleFareSuccess}
+        />
+
+        {/* Invoice Modal */}
+        <InvoiceModal
+          isOpen={showInvoiceModal}
+          onClose={() => {
+            setShowInvoiceModal(false);
+            setSelectedOrder(null);
+          }}
+          order={selectedOrder}
+          onSuccess={() => {
+            fetchOrders();
+            setShowInvoiceModal(false);
+          }}
+          onRecordFare={handleRecordFare}
         />
       </div>
     </DashboardLayout>

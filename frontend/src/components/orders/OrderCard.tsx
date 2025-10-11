@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, User, Truck, Package, Scale, Receipt } from 'lucide-react';
+import { Calendar, Truck, Package, Scale, Receipt } from 'lucide-react';
 import { Order } from '../../types';
 import Card from '../common/Card';
 import Badge from '../common/Badge';
@@ -13,6 +13,7 @@ interface OrderCardProps {
   showActions?: boolean;
   hasFare?: boolean;
   onRecordFare?: (order: Order) => void;
+  pageType?: 'orders' | 'accounts' | 'gate' | 'other';
 }
 
 const OrderCard: React.FC<OrderCardProps> = ({ 
@@ -20,7 +21,8 @@ const OrderCard: React.FC<OrderCardProps> = ({
   onActionClick, 
   showActions = true,
   hasFare = false,
-  onRecordFare
+  onRecordFare,
+  pageType = 'other'
 }) => {
   const { hasRole } = useAuth();
 
@@ -101,16 +103,47 @@ const OrderCard: React.FC<OrderCardProps> = ({
         break;
       case 'ready_for_billing':
       case 'ready_for_billing_purchase':
-        if (!hasFare && onRecordFare) {
-          actions.push({ label: 'Record Fare', action: 'record-fare', variant: 'warning' });
-        } else if (canGenerateInvoice && hasFare) {
-          actions.push({ label: 'Generate Invoice', action: 'generate-invoice', variant: 'primary' });
+        // Only show invoice actions on orders and accounts pages
+        if (pageType === 'orders' || pageType === 'accounts') {
+          if (!hasFare && onRecordFare) {
+            actions.push({ label: 'Record Fare', action: 'record-fare', variant: 'warning' });
+          } else if (canGenerateInvoice && hasFare && !order.invoice) {
+            actions.push({ label: 'Generate Invoice', action: 'generate-invoice', variant: 'primary' });
+          } else if (order.invoice) {
+            // Show View Invoice and Move to Gate buttons when invoice exists
+            actions.push({ label: 'View Invoice', action: 'view-invoice', variant: 'ghost' });
+            actions.push({ label: 'Move to Gate', action: 'move-to-gate', variant: 'success' });
+          }
         }
         break;
       case 'ready_for_dispatch':
-      case 'ready_for_exit_purchase':
-        if (canApproveEntry) {
+        // Show View Invoice button only on orders and accounts pages
+        if ((pageType === 'orders' || pageType === 'accounts') && order.invoice) {
+          actions.push({ label: 'View Invoice', action: 'view-invoice', variant: 'ghost' });
+        }
+        // Show Mark Exit button only on gate pages
+        if (pageType === 'gate' && canApproveEntry) {
           actions.push({ label: 'Mark Exit', action: 'exit', variant: 'success' });
+        }
+        break;
+      case 'ready_for_exit_purchase':
+        // Show View Invoice button only on orders and accounts pages
+        if ((pageType === 'orders' || pageType === 'accounts') && order.invoice) {
+          actions.push({ label: 'View Invoice', action: 'view-invoice', variant: 'ghost' });
+        }
+        // Show Move to Gate button only on orders and accounts pages
+        if ((pageType === 'orders' || pageType === 'accounts') && canGenerateInvoice && order.invoice) {
+          actions.push({ label: 'Move to Gate', action: 'move-to-gate', variant: 'success' });
+        }
+        // Show Mark Exit button only on gate pages
+        if (pageType === 'gate' && canApproveEntry) {
+          actions.push({ label: 'Mark Exit', action: 'exit', variant: 'success' });
+        }
+        break;
+      case 'completed':
+        // Show View Invoice button for completed orders on orders and accounts pages
+        if ((pageType === 'orders' || pageType === 'accounts') && order.invoice) {
+          actions.push({ label: 'View Invoice', action: 'view-invoice', variant: 'ghost' });
         }
         break;
     }
