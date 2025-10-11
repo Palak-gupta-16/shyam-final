@@ -373,7 +373,7 @@ const OrderDetailsModal: React.FC<{
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">Vehicle</label>
-              <p className="text-gray-900">{order.vehicle.number}</p>
+              <p className="text-gray-900">{order.vehicle?.number || 'N/A'}</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">Type</label>

@@ -6,7 +6,10 @@ import {
   Clock,
   CheckCircle,
   Package,
-  Eye
+  Eye,
+  DollarSign,
+  Receipt,
+  AlertCircle
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
@@ -17,24 +20,35 @@ import Badge from '../components/common/Badge';
 import OrderCard from '../components/orders/OrderCard';
 import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
-import { ordersAPI } from '../services/api';
-import { Order, OrderStatus } from '../types';
+import FareModal from '../components/fares/FareModal';
+import FareTable from '../components/fares/FareTable';
+import { ordersAPI, fareAPI } from '../services/api';
+import { Order, OrderStatus, Fare } from '../types';
 import { useAuth } from '../context/AuthContext';
 
-const Orders: React.FC = () => {
+const Accounts: React.FC = () => {
   const { hasRole } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [fares, setFares] = useState<Fare[]>([]);
   const [loading, setLoading] = useState(true);
+  const [faresLoading, setFaresLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [fareSearchTerm, setFareSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedFareType, setSelectedFareType] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [fareCurrentPage, setFareCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [fareTotalPages, setFareTotalPages] = useState(1);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showActionModal, setShowActionModal] = useState(false);
+  const [showFareModal, setShowFareModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedFare, setSelectedFare] = useState<Fare | null>(null);
   const [actionType, setActionType] = useState<string>('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [activeTab, setActiveTab] = useState<'orders' | 'fares'>('orders');
 
 
 
@@ -68,6 +82,33 @@ const fetchOrders = useCallback(async () => {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  const fetchFares = useCallback(async () => {
+    try {
+      setFaresLoading(true);
+      const params: any = {
+        page: fareCurrentPage,
+        limit: 10,
+      };
+      
+      if (selectedFareType !== 'all') params.fareType = selectedFareType;
+      if (fareSearchTerm) params.search = fareSearchTerm;
+      
+      const response = await fareAPI.getFares(params);
+      setFares(response.fares || []);
+      setFareTotalPages(response.pagination?.totalPages || 1);
+    } catch (error) {
+      console.error('Error fetching fares:', error);
+    } finally {
+      setFaresLoading(false);
+    }
+  }, [fareCurrentPage, selectedFareType, fareSearchTerm]);
+
+  useEffect(() => {
+    if (activeTab === 'fares') {
+      fetchFares();
+    }
+  }, [fetchFares, activeTab]);
 
 
 
@@ -109,7 +150,19 @@ const fetchOrders = useCallback(async () => {
         await ordersAPI.recordFinalWeight(selectedOrder._id, actionData);
         break;
       case 'generate-invoice':
-        await ordersAPI.generateInvoice(selectedOrder._id, actionData);
+        // Check if fare exists before generating invoice
+        try {
+          await fareAPI.getFareByOrderId(selectedOrder._id);
+          await ordersAPI.generateInvoice(selectedOrder._id, actionData);
+        } catch (fareError: any) {
+          if (fareError.response?.status === 404) {
+            alert('Please record the vehicle fare before generating invoice.');
+            setShowActionModal(false);
+            handleRecordFare(selectedOrder);
+            return;
+          }
+          throw fareError;
+        }
         break;
       case 'exit':
         await ordersAPI.exitOrder(selectedOrder._id);
@@ -128,11 +181,55 @@ const fetchOrders = useCallback(async () => {
     }
   };
 
+  // Fare-related handlers
+  const handleRecordFare = (order: Order) => {
+    // Check if user has required role
+    if (!hasRole(['Accounting', 'Director'])) {
+      alert('You need Accounting or Director role to record vehicle fares.');
+      return;
+    }
+    
+    setSelectedOrder(order);
+    setSelectedFare(null);
+    setShowFareModal(true);
+  };
+
+  const handleEditFare = (fare: Fare) => {
+    const order = orders.find(o => o._id === fare.orderId);
+    if (order) {
+      setSelectedOrder(order);
+      setSelectedFare(fare);
+      setShowFareModal(true);
+    }
+  };
+
+  const handleDeleteFare = async (fare: Fare) => {
+    if (window.confirm('Are you sure you want to delete this fare record?')) {
+      try {
+        await fareAPI.deleteFare(fare.orderId);
+        fetchFares();
+        fetchOrders(); // Refresh orders to update invoice generation availability
+      } catch (error) {
+        console.error('Error deleting fare:', error);
+      }
+    }
+  };
+
+  const handleFareSuccess = () => {
+    fetchFares();
+    fetchOrders(); // Refresh orders to update invoice generation availability
+  };
+
+  // Check if an order has fare recorded
+  const orderHasFare = (orderId: string) => {
+    return fares.some(fare => fare.orderId === orderId);
+  };
+
 
   const filteredOrders = orders.filter(order =>
     order.orderNumber.toString().includes(searchTerm) ||
     order.customerOrSupplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase())
+    (order.vehicle?.number && order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -141,7 +238,8 @@ const fetchOrders = useCallback(async () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Weighbridge Management</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Accounts Management</h1>
+            <p className="text-gray-600 mt-2">Manage orders, fares, and billing</p>
           </div>
           <div className="flex items-center space-x-3">
             <div className="flex bg-gray-100 rounded-lg p-1">
@@ -170,9 +268,44 @@ const fetchOrders = useCallback(async () => {
           </div>
         </div>
 
-        
+        {/* Tabs */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'orders'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Receipt className="h-4 w-4" />
+                <span>Orders & Billing</span>
+              </div>
+            </button>
+            {hasRole(['Accounting', 'Director', 'General_Manager']) && (
+              <button
+                onClick={() => setActiveTab('fares')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'fares'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <DollarSign className="h-4 w-4" />
+                  <span>Vehicle Fares</span>
+                </div>
+              </button>
+            )}
+          </nav>
+        </div>
 
-        {/* Filters */}
+        {/* Tab Content */}
+        {activeTab === 'orders' && (
+          <>
+            {/* Filters */}
         <Card>
           <Card.Body>
             <div className="flex flex-col lg:flex-row gap-4">
@@ -218,6 +351,8 @@ const fetchOrders = useCallback(async () => {
                 order={order}
                 onActionClick={handleActionClick}
                 showActions={true}
+                hasFare={orderHasFare(order._id)}
+                onRecordFare={handleRecordFare}
               />
             ))}
           </div>
@@ -251,6 +386,72 @@ const fetchOrders = useCallback(async () => {
           order={selectedOrder}
           actionType={actionType}
           onExecute={executeAction}
+        />
+          </>
+        )}
+
+        {/* Fares Tab */}
+        {activeTab === 'fares' && (
+          <>
+            {/* Fare Filters */}
+            <Card>
+              <Card.Body>
+                <div className="flex flex-col lg:flex-row gap-4">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="Search by order number, customer, vehicle, or driver..."
+                      value={fareSearchTerm}
+                      onChange={(e) => setFareSearchTerm(e.target.value)}
+                      icon={Search}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedFareType}
+                      onChange={(e) => setSelectedFareType(e.target.value)}
+                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="all">All Fare Types</option>
+                      <option value="given_by_us">Given by Us</option>
+                      <option value="given_by_other_party">Given by Other Party</option>
+                    </select>
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+
+            {/* Fare Table */}
+            <FareTable
+              fares={fares}
+              loading={faresLoading}
+              onEdit={handleEditFare}
+              onDelete={handleDeleteFare}
+            />
+
+            {/* Fare Pagination */}
+            {fareTotalPages > 1 && (
+              <Pagination
+                currentPage={fareCurrentPage}
+                totalPages={fareTotalPages}
+                onPageChange={setFareCurrentPage}
+                total={fares.length}
+                pageSize={10}
+              />
+            )}
+          </>
+        )}
+
+        {/* Fare Modal */}
+        <FareModal
+          isOpen={showFareModal}
+          onClose={() => {
+            setShowFareModal(false);
+            setSelectedOrder(null);
+            setSelectedFare(null);
+          }}
+          order={selectedOrder}
+          existingFare={selectedFare}
+          onSuccess={handleFareSuccess}
         />
       </div>
     </DashboardLayout>
@@ -387,9 +588,24 @@ const ActionModal: React.FC<{
     
     let processedData = { ...formData };
     
+    // Special processing for empty-weight action
+    if (actionType === 'empty-weight') {
+      processedData = {
+        emptyWeight: formData.emptyWeight || 0,
+        slipUrl: formData.slipNumber || ''
+      };
+    }
+    
+    // Special processing for final-weight action
+    if (actionType === 'final-weight') {
+      processedData = {
+        finalWeight: formData.finalWeight || 0,
+        slipUrl: formData.finalSlipNumber || ''
+      };
+    }
     
     // Special processing for generate-invoice action
-  if (actionType === 'generate-invoice') {
+    if (actionType === 'generate-invoice') {
       processedData = {
         amount: Number(formData.amount) || 0,
         RatePerUnit: Number(formData.rate) || 0,
@@ -499,4 +715,4 @@ const ActionModal: React.FC<{
   );
 };
 
-export default Orders;
+export default Accounts;

@@ -5,6 +5,7 @@ const inventoryRoutes = require('./inventoryRoutes');
 const gatePassRoutes = require('./gatePassRoutes');
 const millRoutes = require('./millRoutes');
 const storeRoutes = require('./storeRoutes');
+const fareRoutes = require('./fareRoutes');
 
 const router = express.Router();
 
@@ -15,6 +16,7 @@ router.use('/inventory', inventoryRoutes);
 router.use('/gatepasses', gatePassRoutes);
 router.use('/mill', millRoutes);
 router.use('/store', storeRoutes);
+router.use('/fares', fareRoutes);
 
 // Health check endpoint
 router.get('/health', (req, res) => {

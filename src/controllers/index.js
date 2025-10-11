@@ -5,6 +5,7 @@ const inventoryController = require('./inventoryController');
 const gatePassController = require('./gatePassController');
 const millController = require('./millController');
 const storeController = require('./storeController');
+const fareController = require('./fareController');
 
 module.exports = {
   authController,
@@ -12,5 +13,6 @@ module.exports = {
   inventoryController,
   gatePassController,
   millController,
-  storeController
+  storeController,
+  fareController
 };

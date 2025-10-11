@@ -161,7 +161,7 @@ const Orders: React.FC = () => {
   const filteredOrders = orders.filter(order =>
     order.orderNumber.toString().includes(searchTerm) ||
     order.customerOrSupplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase())
+    (order.vehicle?.number && order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -356,8 +356,8 @@ const OrdersTable: React.FC<{
       title: 'Vehicle',
       render: (_: any, record: Order) => (
         <div>
-          <div className="font-medium">{record.vehicle.number}</div>
-          <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+          <div className="font-medium">{record.vehicle?.number || 'N/A'}</div>
+          <div className="text-sm text-gray-500">{record.vehicle?.driverName || 'N/A'}</div>
         </div>
       ),
     },
@@ -764,6 +764,22 @@ const ActionModal: React.FC<{
       };
     }
     
+    // Special processing for empty-weight action
+    if (actionType === 'empty-weight') {
+      processedData = {
+        emptyWeight: formData.emptyWeight || 0,
+        slipUrl: formData.slipNumber || ''
+      };
+    }
+    
+    // Special processing for final-weight action
+    if (actionType === 'final-weight') {
+      processedData = {
+        finalWeight: formData.finalWeight || 0,
+        slipUrl: formData.finalSlipNumber || ''
+      };
+    }
+    
     // Special processing for generate-invoice action
     if (actionType === 'generate-invoice') {
       processedData = {
@@ -811,7 +827,7 @@ const ActionModal: React.FC<{
             <div className="bg-yellow-50 p-4 rounded-lg">
               <h4 className="font-medium text-yellow-900">Record Empty Weight</h4>
               <p className="text-sm text-yellow-700 mt-1">
-                Vehicle: {order.vehicle.number} | Driver: {order.vehicle.driverName}
+                Vehicle: {order.vehicle?.number || 'N/A'} | Driver: {order.vehicle?.driverName || 'N/A'}
               </p>
             </div>
             <Input

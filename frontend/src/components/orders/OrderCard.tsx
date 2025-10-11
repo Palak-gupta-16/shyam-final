@@ -11,12 +11,16 @@ interface OrderCardProps {
   order: Order;
   onActionClick?: (action: string, orderId: string) => void;
   showActions?: boolean;
+  hasFare?: boolean;
+  onRecordFare?: (order: Order) => void;
 }
 
 const OrderCard: React.FC<OrderCardProps> = ({ 
   order, 
   onActionClick, 
-  showActions = true 
+  showActions = true,
+  hasFare = false,
+  onRecordFare
 }) => {
   const { hasRole } = useAuth();
 
@@ -97,7 +101,9 @@ const OrderCard: React.FC<OrderCardProps> = ({
         break;
       case 'ready_for_billing':
       case 'ready_for_billing_purchase':
-        if (canGenerateInvoice) {
+        if (!hasFare && onRecordFare) {
+          actions.push({ label: 'Record Fare', action: 'record-fare', variant: 'warning' });
+        } else if (canGenerateInvoice && hasFare) {
           actions.push({ label: 'Generate Invoice', action: 'generate-invoice', variant: 'primary' });
         }
         break;
@@ -168,10 +174,10 @@ const OrderCard: React.FC<OrderCardProps> = ({
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-900">
-                  {order.vehicle.number}
+                  {order.vehicle?.number || 'N/A'}
                 </p>
                 <p className="text-xs text-gray-500">
-                  Driver: {order.vehicle.driverName}
+                  Driver: {order.vehicle?.driverName || 'N/A'}
                 </p>
               </div>
             </div>
@@ -255,7 +261,13 @@ const OrderCard: React.FC<OrderCardProps> = ({
                     key={action.action}
                     variant={action.variant as any}
                     size="sm"
-                    onClick={() => onActionClick?.(action.action, order._id)}
+                    onClick={() => {
+                      if (action.action === 'record-fare' && onRecordFare) {
+                        onRecordFare(order);
+                      } else {
+                        onActionClick?.(action.action, order._id);
+                      }
+                    }}
                   >
                     {action.label}
                   </Button>

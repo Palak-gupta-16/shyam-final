@@ -250,6 +250,7 @@ export interface PaginationInfo {
 export interface PaginatedResponse<T> {
   orders?: T[];
   gatePasses?: T[];
+  fares?: T[];
   pagination: PaginationInfo;
 }
 
@@ -322,6 +323,34 @@ export interface NavigationItem {
   icon: React.ComponentType<any>;
   current?: boolean;
   children?: NavigationItem[];
+}
+
+// Fare types
+export interface Fare {
+  _id: string;
+  orderNumber: number;
+  orderId: string;
+  fareType: 'given_by_us' | 'given_by_other_party';
+  amount: number;
+  vehicleNumber: string;
+  driverName: string;
+  customerOrSupplier: string;
+  notes?: string;
+  recordedBy: User;
+  recordedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FareStats {
+  stats: Array<{
+    _id: string;
+    totalAmount: number;
+    count: number;
+    avgAmount: number;
+  }>;
+  totalFares: number;
+  totalAmount: number;
 }
 
 // Dashboard stats types

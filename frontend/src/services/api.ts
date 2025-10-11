@@ -7,6 +7,8 @@ import {
   MillHourlyReport, 
   MillDailySummary, 
   StoreIssuance,
+  Fare,
+  FareStats,
   LoginForm,
   RegisterForm,
   CreateOrderForm,
@@ -34,6 +36,9 @@ api.interceptors.request.use(
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log('API Request:', config.method?.toUpperCase(), config.url, 'with token:', token.substring(0, 20) + '...');
+    } else {
+      console.log('API Request:', config.method?.toUpperCase(), config.url, 'NO TOKEN');
     }
     return config;
   },
@@ -44,9 +49,16 @@ api.interceptors.request.use(
 
 // Response interceptor to handle errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('API Response:', response.status, response.config.method?.toUpperCase(), response.config.url);
+    return response;
+  },
   (error) => {
+    console.log('API Error:', error.response?.status, error.response?.statusText, error.config?.method?.toUpperCase(), error.config?.url);
+    console.log('Error response data:', error.response?.data);
+    
     if (error.response?.status === 401) {
+      console.log('401 Unauthorized - redirecting to login');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -166,7 +178,12 @@ getOrdersByStatus: async (params?: {
     return response.data;
   },
 
-  generateInvoice: async (orderId: string, data: { amount: number }): Promise<ApiResponse<Order>> => {
+  generateInvoice: async (orderId: string, data: { 
+    amount: number; 
+    RatePerUnit?: number; 
+    TaxPercentage?: number; 
+    invoiceNotes?: string; 
+  }): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.post(`/orders/${orderId}/generate-invoice`, data);
     return response.data;
   },
@@ -453,6 +470,56 @@ export const uploadAPI = {
     });
     return response.data;
   },
+};
+
+// Fare API
+export const fareAPI = {
+  recordFare: async (orderId: string, data: {
+    fareType: 'given_by_us' | 'given_by_other_party';
+    amount: number;
+    notes?: string;
+  }): Promise<ApiResponse<Fare>> => {
+    console.log('API: Recording fare for order:', orderId, 'with data:', data);
+    const response: AxiosResponse<ApiResponse<Fare>> = await api.post(`/fares/order/${orderId}`, data);
+    console.log('API: Fare recorded successfully:', response.data);
+    return response.data;
+  },
+
+  getFares: async (params?: {
+    page?: number;
+    limit?: number;
+    fareType?: string;
+    search?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<PaginatedResponse<Fare>> => {
+    const response: AxiosResponse<PaginatedResponse<Fare>> = await api.get('/fares', { params });
+    return response.data;
+  },
+
+  getFareByOrderId: async (orderId: string): Promise<Fare> => {
+    const response: AxiosResponse<Fare> = await api.get(`/fares/order/${orderId}`);
+    return response.data;
+  },
+
+  updateFare: async (orderId: string, data: {
+    fareType: 'given_by_us' | 'given_by_other_party';
+    amount: number;
+    notes?: string;
+  }): Promise<ApiResponse<Fare>> => {
+    const response: AxiosResponse<ApiResponse<Fare>> = await api.put(`/fares/order/${orderId}`, data);
+    return response.data;
+  },
+
+  deleteFare: async (orderId: string): Promise<ApiResponse<void>> => {
+    const response: AxiosResponse<ApiResponse<void>> = await api.delete(`/fares/order/${orderId}`);
+    return response.data;
+  },
+
+  getFareStats: async (): Promise<FareStats> => {
+    const response: AxiosResponse<FareStats> = await api.get('/fares/stats');
+    return response.data;
+  }
 };
 
 export default api;

@@ -918,6 +918,15 @@ const generateInvoice = async (req, res) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
+    // Check if fare has been recorded for this order
+    const { Fare } = require('../models');
+    const fare = await Fare.findOne({ orderId: id });
+    if (!fare) {
+      return res.status(400).json({ 
+        message: 'Fare must be recorded before generating invoice. Please record the vehicle fare first.' 
+      });
+    }
+
     // Generate bill number
     const billNumber = Math.floor(Math.random() * 1000000);
 

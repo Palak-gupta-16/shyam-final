@@ -7,6 +7,7 @@ const MillHourlyReport = require('./MillHourlyReport');
 const MillDailySummary = require('./MillDailySummary');
 const StoreIssuance = require('./StoreIssuance');
 const ActivityLog = require('./ActivityLog');
+const Fare = require('./Fare');
 const { Counter } = require('../utils/counter');
 
 module.exports = {
@@ -18,5 +19,6 @@ module.exports = {
   MillDailySummary,
   StoreIssuance,
   ActivityLog,
+  Fare,
   Counter
 };
