@@ -1,13 +1,57 @@
 const Joi = require('joi');
 
+const dimensionSchema = Joi.object({
+  dimension: Joi.string()
+    .trim()
+    .min(1)
+    .max(100)
+    .required()
+    .messages({
+      'string.empty': 'Dimension is required',
+      'string.min': 'Dimension must be at least 1 character long',
+      'string.max': 'Dimension cannot exceed 100 characters'
+    }),
+  
+  quantity: Joi.number()
+    .min(0)
+    .default(0)
+    .messages({
+      'number.base': 'Quantity must be a number',
+      'number.min': 'Quantity cannot be negative'
+    }),
+  
+  bundles: Joi.number()
+    .min(0)
+    .default(0)
+    .messages({
+      'number.base': 'Bundles must be a number',
+      'number.min': 'Bundles cannot be negative'
+    }),
+  
+  minimumStock: Joi.number()
+    .min(0)
+    .default(0)
+    .messages({
+      'number.base': 'Minimum stock must be a number',
+      'number.min': 'Minimum stock cannot be negative'
+    }),
+  
+  maxStock: Joi.number()
+    .min(0)
+    .allow(null)
+    .messages({
+      'number.base': 'Maximum stock must be a number',
+      'number.min': 'Maximum stock cannot be negative'
+    })
+});
+
 const createInventorySchema = Joi.object({
   sku: Joi.string()
     .trim()
     .min(2)
     .max(50)
-    .required()
+    .allow('')
     .messages({
-      'string.empty': 'SKU is required',
       'string.min': 'SKU must be at least 2 characters long',
       'string.max': 'SKU cannot exceed 50 characters'
     }),
@@ -18,13 +62,6 @@ const createInventorySchema = Joi.object({
     .messages({
       'any.only': 'Type must be one of: finished_product, raw_material, store_item',
       'string.empty': 'Type is required'
-    }),
-  
-  status: Joi.string()
-    .valid('available', 'needed', 'low_stock', 'out_of_stock')
-    .default('available')
-    .messages({
-      'any.only': 'Status must be one of: available, needed, low_stock, out_of_stock'
     }),
   
   name: Joi.string()
@@ -38,29 +75,75 @@ const createInventorySchema = Joi.object({
       'string.max': 'Name cannot exceed 200 characters'
     }),
   
-  dimensions: Joi.string()
-    .trim()
-    .max(100)
-    .allow('')
-    .messages({
-      'string.max': 'Dimensions cannot exceed 100 characters'
-    }),
+  // For finished products
+  dimensions: Joi.when('type', {
+    is: 'finished_product',
+    then: Joi.array()
+      .items(dimensionSchema)
+      .min(1)
+      .required()
+      .messages({
+        'array.min': 'At least one dimension is required for finished products',
+        'any.required': 'Dimensions are required for finished products'
+      }),
+    otherwise: Joi.forbidden()
+  }),
   
-  quantity: Joi.number()
+  // For raw materials and store items
+  quantity: Joi.when('type', {
+    is: Joi.valid('raw_material', 'store_item'),
+    then: Joi.number()
+      .min(0)
+      .default(0)
+      .messages({
+        'number.base': 'Quantity must be a number',
+        'number.min': 'Quantity cannot be negative'
+      }),
+    otherwise: Joi.forbidden()
+  }),
+  
+  bundles: Joi.when('type', {
+    is: Joi.valid('raw_material', 'store_item'),
+    then: Joi.number()
+      .min(0)
+      .default(0)
+      .messages({
+        'number.base': 'Bundles must be a number',
+        'number.min': 'Bundles cannot be negative'
+      }),
+    otherwise: Joi.forbidden()
+  }),
+  
+  minimumStock: Joi.when('type', {
+    is: Joi.valid('raw_material', 'store_item'),
+    then: Joi.number()
+      .min(0)
+      .default(0)
+      .messages({
+        'number.base': 'Minimum stock must be a number',
+        'number.min': 'Minimum stock cannot be negative'
+      }),
+    otherwise: Joi.forbidden()
+  }),
+  
+  maxStock: Joi.when('type', {
+    is: Joi.valid('raw_material', 'store_item'),
+    then: Joi.number()
+      .min(0)
+      .allow(null)
+      .messages({
+        'number.base': 'Maximum stock must be a number',
+        'number.min': 'Maximum stock cannot be negative'
+      }),
+    otherwise: Joi.forbidden()
+  }),
+  
+  length: Joi.number()
     .min(0)
-    .required()
+    .allow(null)
     .messages({
-      'number.base': 'Quantity must be a number',
-      'number.min': 'Quantity cannot be negative',
-      'any.required': 'Quantity is required'
-    }),
-     length: Joi.number()
-    .min(0)
-    .required()
-    .messages({
-      'number.base': 'Quantity must be a number',
-      'number.min': 'Quantity cannot be negative',
-      'any.required': 'Quantity is required'
+      'number.base': 'Length must be a number',
+      'number.min': 'Length cannot be negative'
     }),
   
   unit: Joi.string()
@@ -87,6 +170,67 @@ const createInventorySchema = Joi.object({
     .allow('')
     .messages({
       'string.max': 'Description cannot exceed 500 characters'
+    })
+});
+
+const updateInventorySchema = Joi.object({
+  dimensionId: Joi.string()
+    .required()
+    .messages({
+      'string.empty': 'Dimension ID is required',
+      'any.required': 'Dimension ID is required'
+    }),
+  
+  quantity: Joi.number()
+    .min(0)
+    .required()
+    .messages({
+      'number.base': 'Quantity must be a number',
+      'number.min': 'Quantity cannot be negative',
+      'any.required': 'Quantity is required'
+    }),
+  
+  bundles: Joi.number()
+    .min(0)
+    .messages({
+      'number.base': 'Bundles must be a number',
+      'number.min': 'Bundles cannot be negative'
+    }),
+  
+  action: Joi.string()
+    .valid('set', 'add', 'subtract')
+    .default('set')
+    .messages({
+      'any.only': 'Action must be one of: set, add, subtract'
+    })
+});
+
+const addDimensionSchema = Joi.object({
+  dimension: Joi.string()
+    .trim()
+    .min(1)
+    .max(100)
+    .required()
+    .messages({
+      'string.empty': 'Dimension is required',
+      'string.min': 'Dimension must be at least 1 character long',
+      'string.max': 'Dimension cannot exceed 100 characters'
+    }),
+  
+  quantity: Joi.number()
+    .min(0)
+    .default(0)
+    .messages({
+      'number.base': 'Quantity must be a number',
+      'number.min': 'Quantity cannot be negative'
+    }),
+  
+  bundles: Joi.number()
+    .min(0)
+    .default(0)
+    .messages({
+      'number.base': 'Bundles must be a number',
+      'number.min': 'Bundles cannot be negative'
     }),
   
   minimumStock: Joi.number()
@@ -95,25 +239,19 @@ const createInventorySchema = Joi.object({
     .messages({
       'number.base': 'Minimum stock must be a number',
       'number.min': 'Minimum stock cannot be negative'
-    })
-});
-
-const updateInventorySchema = Joi.object({
-  quantity: Joi.number()
-    .min(0)
-    .messages({
-      'number.base': 'Quantity must be a number',
-      'number.min': 'Quantity cannot be negative'
     }),
   
-  status: Joi.string()
-    .valid('available', 'needed', 'low_stock', 'out_of_stock')
+  maxStock: Joi.number()
+    .min(0)
+    .allow(null)
     .messages({
-      'any.only': 'Status must be one of: available, needed, low_stock, out_of_stock'
+      'number.base': 'Maximum stock must be a number',
+      'number.min': 'Maximum stock cannot be negative'
     })
 });
 
 module.exports = {
   createInventorySchema,
-  updateInventorySchema
+  updateInventorySchema,
+  addDimensionSchema
 };

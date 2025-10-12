@@ -125,24 +125,42 @@ export interface OrderHistory {
 }
 
 // Inventory types
+export interface InventoryDimension {
+  _id: string;
+  dimension: string;
+  quantity: number;
+  bundles: number;
+  sku: string;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minimumStock: number;
+  maxStock?: number;
+  blockedOrders: BlockedOrder[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InventoryItem {
   _id: string;
   sku: string;
   type: 'finished_product' | 'raw_material' | 'store_item';
   status: 'available' | 'needed' | 'low_stock' | 'out_of_stock' | 'blocked';
   name: string;
-  dimensions?: string;
-  quantity: number;
+  // For finished products
+  dimensions?: InventoryDimension[];
+  // For raw materials and store items
+  quantity?: number;
+  bundles?: number;
+  reservedQuantity?: number;
+  availableQuantity?: number;
+  minimumStock?: number;
+  maxStock?: number;
+  blockedOrders?: BlockedOrder[];
   unit: string;
   location?: string;
   description?: string;
-  minimumStock?: number;
   length?: number;
-  maxStock?: number;
-  reservedQuantity?: number;
-  availableQuantity?: number;
   lastUpdatedBy?: string;
-  blockedOrders?: BlockedOrder[];
   createdAt: string;
   updatedAt: string;
 }

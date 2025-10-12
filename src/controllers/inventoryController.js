@@ -56,30 +56,53 @@ const getInventory = async (req, res) => {
 // Add new inventory item
 const addInventoryItem = async (req, res) => {
   try {
-    const { sku, type, name, dimensions, quantity,length, unit, location, description, minimumStock, maxStock } = req.body;
+    const { sku, type, name, dimensions, quantity, bundles, minimumStock, maxStock, length, unit, location, description } = req.body;
 
-    // Check if SKU already exists
-    const existingItem = await Inventory.findOne({ sku });
-    if (existingItem) {
-      return res.status(400).json({ message: 'SKU already exists' });
+    // Check if SKU already exists (only if provided)
+    if (sku) {
+      const existingItem = await Inventory.findOne({ sku });
+      if (existingItem) {
+        return res.status(400).json({ message: 'Base SKU already exists' });
+      }
+    }
+
+    let itemData = {
+      ...(sku && { sku }), // Only include SKU if provided
+      type,
+      name,
+      length,
+      unit: unit || 'pieces',
+      location,
+      description,
+      lastUpdatedBy: req.user._id
+    };
+
+    if (type === 'finished_product') {
+      // For finished products - validate dimensions array
+      if (!dimensions || !Array.isArray(dimensions) || dimensions.length === 0) {
+        return res.status(400).json({ message: 'At least one dimension is required for finished products' });
+      }
+
+      itemData.dimensions = dimensions.map(dim => ({
+        dimension: dim.dimension,
+        quantity: dim.quantity || 0,
+        bundles: dim.bundles || 0,
+        minimumStock: dim.minimumStock || 0,
+        maxStock: dim.maxStock
+      }));
+    } else {
+      // For raw materials and store items - use simple quantity
+      itemData = {
+        ...itemData,
+        quantity: quantity || 0,
+        bundles: bundles || 0,
+        minimumStock: minimumStock || 0,
+        maxStock
+      };
     }
 
     // Create new inventory item
-    const item = new Inventory({
-      sku,
-      type,
-      name,
-      dimensions,
-      quantity,
-length,
-      unit: unit || 'mt',
-      location,
-      description,
-      minimumStock: minimumStock || 0,
-      maxStock,
-      lastUpdatedBy: req.user._id
-    });
-
+    const item = new Inventory(itemData);
     await item.save();
 
     // Populate the lastUpdatedBy field for response
@@ -109,44 +132,52 @@ length,
   }
 };
 
-// Update inventory item quantity with stock validation
+// Update inventory item dimension quantity with stock validation
 const updateInventoryItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { quantity, action = 'set' } = req.body; // action can be 'set', 'add', 'subtract'
+    const { dimensionId, quantity, bundles, action = 'set' } = req.body;
 
     const item = await Inventory.findById(id);
     if (!item) {
       return res.status(404).json({ message: 'Inventory item not found' });
     }
 
+    const dimension = item.dimensions.id(dimensionId);
+    if (!dimension) {
+      return res.status(404).json({ message: 'Dimension not found' });
+    }
+
     let newQuantity;
     switch (action) {
       case 'add':
-        newQuantity = item.quantity + quantity;
+        newQuantity = dimension.quantity + quantity;
         break;
       case 'subtract':
-        newQuantity = Math.max(0, item.quantity - quantity);
+        newQuantity = Math.max(0, dimension.quantity - quantity);
         break;
       default:
         newQuantity = quantity;
     }
 
     // Validate that we don't go below reserved quantity
-    if (newQuantity < item.reservedQuantity) {
+    if (newQuantity < dimension.reservedQuantity) {
       return res.status(400).json({ 
-        message: `Cannot reduce quantity below reserved amount (${item.reservedQuantity})` 
+        message: `Cannot reduce quantity below reserved amount (${dimension.reservedQuantity})` 
       });
     }
 
-    // Update quantity and last updated by
-    item.quantity = newQuantity;
+    // Update dimension quantity and bundles
+    dimension.quantity = newQuantity;
+    if (bundles !== undefined) {
+      dimension.bundles = bundles;
+    }
     item.lastUpdatedBy = req.user._id;
 
     await item.save();
 
     // Check if this update can fulfill any blocked orders
-    await checkAndFulfillBlockedOrders(item);
+    await checkAndFulfillBlockedOrders(item, dimensionId);
 
     // Populate the lastUpdatedBy field for response
     await item.populate('lastUpdatedBy', 'name alias');
@@ -291,33 +322,40 @@ const getNeededItems = async (req, res) => {
   }
 };
 
-// Reserve inventory for an order
+// Reserve inventory for an order (dimension-specific)
 const reserveInventory = async (req, res) => {
   try {
-    const { inventoryItemId, quantity, orderId } = req.body;
+    const { inventoryItemId, dimensionId, quantity, orderId } = req.body;
 
     const item = await Inventory.findById(inventoryItemId);
     if (!item) {
       return res.status(404).json({ message: 'Inventory item not found' });
     }
 
-    const reserved = item.reserveQuantity(quantity);
+    const reserved = item.reserveQuantityForDimension(dimensionId, quantity);
     if (!reserved) {
+      const dimension = item.dimensions.id(dimensionId);
       return res.status(400).json({ 
-        message: `Insufficient stock. Available: ${item.availableQuantity}, Requested: ${quantity}` 
+        message: `Insufficient stock. Available: ${dimension?.availableQuantity || 0}, Requested: ${quantity}` 
       });
     }
 
     item.lastUpdatedBy = req.user._id;
     await item.save();
 
+    const dimension = item.dimensions.id(dimensionId);
     res.json({
       message: 'Inventory reserved successfully',
       item: {
         _id: item._id,
         name: item.name,
-        availableQuantity: item.availableQuantity,
-        reservedQuantity: item.reservedQuantity
+        dimension: {
+          _id: dimension._id,
+          dimension: dimension.dimension,
+          sku: dimension.sku,
+          availableQuantity: dimension.availableQuantity,
+          reservedQuantity: dimension.reservedQuantity
+        }
       }
     });
 
@@ -327,65 +365,144 @@ const reserveInventory = async (req, res) => {
   }
 };
 
-// Helper function to check and fulfill blocked orders
-const checkAndFulfillBlockedOrders = async (inventoryItem) => {
+// Add new dimension to existing inventory item
+const addDimensionToItem = async (req, res) => {
   try {
-    if (inventoryItem.availableQuantity <= 0 || inventoryItem.blockedOrders.length === 0) {
-      return;
+    const { id } = req.params;
+    const { dimension, quantity, bundles, minimumStock, maxStock } = req.body;
+
+    const item = await Inventory.findById(id);
+    if (!item) {
+      return res.status(404).json({ message: 'Inventory item not found' });
     }
 
-    // Sort blocked orders by priority and date
-    const sortedBlockedOrders = inventoryItem.blockedOrders.sort((a, b) => {
-      const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
-      const aPriority = priorityOrder[a.priority] || 2;
-      const bPriority = priorityOrder[b.priority] || 2;
-      
-      if (aPriority !== bPriority) {
-        return bPriority - aPriority; // Higher priority first
-      }
-      
-      return new Date(a.dateBlocked) - new Date(b.dateBlocked); // Earlier date first
+    // Check if dimension already exists
+    const existingDimension = item.dimensions.find(d => d.dimension === dimension);
+    if (existingDimension) {
+      return res.status(400).json({ message: 'Dimension already exists for this item' });
+    }
+
+    // Add new dimension
+    const newDimension = item.addDimension({
+      dimension,
+      quantity: quantity || 0,
+      bundles: bundles || 0,
+      minimumStock: minimumStock || 0,
+      maxStock
     });
 
-    let availableQty = inventoryItem.availableQuantity;
-    const ordersToFulfill = [];
+    item.lastUpdatedBy = req.user._id;
+    await item.save();
 
-    for (const blockedOrder of sortedBlockedOrders) {
-      if (availableQty >= blockedOrder.quantityNeeded) {
-        ordersToFulfill.push(blockedOrder);
-        availableQty -= blockedOrder.quantityNeeded;
-      }
+    await item.populate('lastUpdatedBy', 'name alias');
+
+    res.status(201).json({
+      message: 'Dimension added successfully',
+      item,
+      newDimension
+    });
+
+  } catch (error) {
+    console.error('Add dimension error:', error);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Dimension SKU already exists' });
+    }
+    
+    res.status(500).json({ message: 'Server error adding dimension' });
+  }
+};
+
+// Get inventory item by dimension SKU
+const getInventoryByDimensionSku = async (req, res) => {
+  try {
+    const { dimensionSku } = req.params;
+
+    const item = await Inventory.findByDimensionSku(dimensionSku)
+      .populate('lastUpdatedBy', 'name alias');
+
+    if (!item) {
+      return res.status(404).json({ message: 'Inventory item not found' });
     }
 
-    // Fulfill orders
-    for (const orderToFulfill of ordersToFulfill) {
-      const order = await Order.findById(orderToFulfill.orderId);
-      if (order) {
-        // Update order status and remove from blocked
-        order.isBlocked = false;
-        order.fulfilledAt = new Date();
+    const dimension = item.dimensions.find(d => d.sku === dimensionSku);
+
+    res.json({
+      item,
+      dimension
+    });
+
+  } catch (error) {
+    console.error('Get inventory by dimension SKU error:', error);
+    res.status(500).json({ message: 'Server error fetching inventory' });
+  }
+};
+
+// Helper function to check and fulfill blocked orders (dimension-specific)
+const checkAndFulfillBlockedOrders = async (inventoryItem, dimensionId = null) => {
+  try {
+    const dimensionsToCheck = dimensionId 
+      ? [inventoryItem.dimensions.id(dimensionId)]
+      : inventoryItem.dimensions;
+
+    for (const dimension of dimensionsToCheck) {
+      if (!dimension || dimension.availableQuantity <= 0 || dimension.blockedOrders.length === 0) {
+        continue;
+      }
+
+      // Sort blocked orders by priority and date
+      const sortedBlockedOrders = dimension.blockedOrders.sort((a, b) => {
+        const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
+        const aPriority = priorityOrder[a.priority] || 2;
+        const bPriority = priorityOrder[b.priority] || 2;
         
-        // Update product quantity fulfilled
-        const product = order.products.find(p => 
-          p.inventoryItemId && p.inventoryItemId.toString() === inventoryItem._id.toString()
-        );
-        if (product) {
-          product.quantityFulfilled += orderToFulfill.quantityNeeded;
+        if (aPriority !== bPriority) {
+          return bPriority - aPriority; // Higher priority first
         }
+        
+        return new Date(a.dateBlocked) - new Date(b.dateBlocked); // Earlier date first
+      });
 
-        await order.save();
+      let availableQty = dimension.availableQuantity;
+      const ordersToFulfill = [];
 
-        // Remove from blocked orders list
-        inventoryItem.blockedOrders = inventoryItem.blockedOrders.filter(
-          b => b.orderId.toString() !== orderToFulfill.orderId.toString()
-        );
+      for (const blockedOrder of sortedBlockedOrders) {
+        if (availableQty >= blockedOrder.quantityNeeded) {
+          ordersToFulfill.push(blockedOrder);
+          availableQty -= blockedOrder.quantityNeeded;
+        }
+      }
 
-        // Reserve the inventory
-        inventoryItem.reserveQuantity(orderToFulfill.quantityNeeded);
+      // Fulfill orders
+      for (const orderToFulfill of ordersToFulfill) {
+        const order = await Order.findById(orderToFulfill.orderId);
+        if (order) {
+          // Update order status and remove from blocked
+          order.isBlocked = false;
+          order.fulfilledAt = new Date();
+          
+          // Update product quantity fulfilled
+          const product = order.products.find(p => 
+            p.inventoryItemId && p.inventoryItemId.toString() === inventoryItem._id.toString()
+          );
+          if (product) {
+            product.quantityFulfilled += orderToFulfill.quantityNeeded;
+          }
+
+          await order.save();
+
+          // Remove from blocked orders list
+          dimension.blockedOrders = dimension.blockedOrders.filter(
+            b => b.orderId.toString() !== orderToFulfill.orderId.toString()
+          );
+
+          // Reserve the inventory
+          inventoryItem.reserveQuantityForDimension(dimension._id, orderToFulfill.quantityNeeded);
+        }
       }
     }
 
-    if (ordersToFulfill.length > 0) {
+    if (inventoryItem.isModified()) {
       await inventoryItem.save();
     }
 
@@ -403,5 +520,7 @@ module.exports = {
   searchInventory,
   getNeededItems,
   reserveInventory,
+  addDimensionToItem,
+  getInventoryByDimensionSku,
   checkAndFulfillBlockedOrders
 };

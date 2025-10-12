@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, Package, AlertTriangle, CheckCircle } from 'lucide-react';
-import { InventoryItem } from '../../types';
+import { InventoryItem, InventoryDimension } from '../../types';
 import { inventoryAPI } from '../../services/api';
 
 interface InventoryDropdownProps {
   type: 'finished_product' | 'raw_material' | 'store_item';
-  value: string | null;
-  onChange: (item: InventoryItem | null) => void;
+  value: string | null; // This will be the dimension SKU
+  onChange: (item: InventoryItem | null, dimension?: InventoryDimension | null) => void;
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
@@ -31,7 +31,25 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const selectedItem = items.find(item => item._id === value);
+  // Find selected item and dimension by dimension SKU or item SKU for simple items
+  const selectedData = React.useMemo(() => {
+    if (!value) return null;
+    
+    for (const item of items) {
+      if (item.type === 'finished_product' && item.dimensions) {
+        const dimension = item.dimensions.find(d => d.sku === value);
+        if (dimension) {
+          return { item, dimension };
+        }
+      } else {
+        // For raw materials and store items, match by item SKU
+        if (item.sku === value) {
+          return { item, dimension: null };
+        }
+      }
+    }
+    return null;
+  }, [items, value]);
 
   useEffect(() => {
     fetchItems();
@@ -50,38 +68,70 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
     }
   };
 
-  const filteredItems = items.filter(item =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.dimensions && item.dimensions.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // Create flattened list of options for filtering
+  const itemOptions = React.useMemo(() => {
+    const options: Array<{ item: InventoryItem; dimension: InventoryDimension | null }> = [];
+    
+    items.forEach(item => {
+      if (item.type === 'finished_product' && item.dimensions) {
+        // For finished products, add each dimension as an option
+        item.dimensions.forEach(dimension => {
+          if (!availableOnly || dimension.availableQuantity > 0) {
+            options.push({ item, dimension });
+          }
+        });
+      } else {
+        // For raw materials and store items, add the item itself
+        if (!availableOnly || (item.availableQuantity || 0) > 0) {
+          options.push({ item, dimension: null });
+        }
+      }
+    });
+    
+    return options.filter(option =>
+      option.item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      option.item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (option.dimension && (
+        option.dimension.dimension.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        option.dimension.sku.toLowerCase().includes(searchTerm.toLowerCase())
+      ))
+    );
+  }, [items, searchTerm, availableOnly]);
 
-  const getStockIcon = (item: InventoryItem) => {
-    if (item.status === 'out_of_stock' || item.availableQuantity === 0) {
+  const getStockIcon = (item: InventoryItem, dimension: InventoryDimension | null) => {
+    const availableQty = dimension ? dimension.availableQuantity : (item.availableQuantity || 0);
+    const qty = dimension ? dimension.quantity : (item.quantity || 0);
+    const minStock = dimension ? dimension.minimumStock : (item.minimumStock || 0);
+    
+    if (availableQty === 0) {
       return <AlertTriangle className="h-4 w-4 text-red-500" />;
     }
-    if (item.status === 'low_stock') {
+    if (qty <= minStock) {
       return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
     }
     return <CheckCircle className="h-4 w-4 text-green-500" />;
   };
 
-  const getStockText = (item: InventoryItem) => {
-    const available = item.availableQuantity ?? item.quantity;
-    const reserved = item.reservedQuantity ?? 0;
+  const getStockText = (item: InventoryItem, dimension: InventoryDimension | null) => {
+    const availableQty = dimension ? dimension.availableQuantity : (item.availableQuantity || 0);
+    const reservedQty = dimension ? dimension.reservedQuantity : (item.reservedQuantity || 0);
+    const bundles = dimension ? dimension.bundles : (item.bundles || 0);
     
     return (
       <div className="text-xs text-gray-500">
-        <div>Available: {available} {item.unit}</div>
-        {reserved > 0 && (
-          <div>Reserved: {reserved} {item.unit}</div>
+        <div>Available: {availableQty} {item.unit}</div>
+        {reservedQty > 0 && (
+          <div>Reserved: {reservedQty} {item.unit}</div>
+        )}
+        {bundles > 0 && (
+          <div>Bundles: {bundles}</div>
         )}
       </div>
     );
   };
 
-  const handleSelect = (item: InventoryItem) => {
-    onChange(item);
+  const handleSelect = (item: InventoryItem, dimension: InventoryDimension | null) => {
+    onChange(item, dimension);
     setIsOpen(false);
     setSearchTerm('');
   };
@@ -97,28 +147,33 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
           w-full px-3 py-2 text-left bg-white border rounded-lg shadow-sm
           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
           ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'hover:border-gray-400 cursor-pointer'}
-          ${selectedItem ? 'border-gray-300' : 'border-gray-300'}
-          ${required && !selectedItem ? 'border-red-300' : ''}
+          ${selectedData ? 'border-gray-300' : 'border-gray-300'}
+          ${required && !selectedData ? 'border-red-300' : ''}
         `}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
             <Package className="h-4 w-4 text-gray-400 flex-shrink-0" />
-            {selectedItem ? (
+            {selectedData ? (
               <div className="flex-1 min-w-0">
                 <div className="flex items-center space-x-2">
                   <span className="font-medium text-gray-900 truncate">
-                    {selectedItem.name}
+                    {selectedData.item.name}
                   </span>
-                  {showStock && getStockIcon(selectedItem)}
+                  {showStock && getStockIcon(selectedData.item, selectedData.dimension)}
                 </div>
                 <div className="text-sm text-gray-500 truncate">
-                  {selectedItem.sku}
-                  {selectedItem.dimensions && ` • ${selectedItem.dimensions}`}
+                  {selectedData.dimension 
+                    ? `${selectedData.dimension.sku} • ${selectedData.dimension.dimension}`
+                    : selectedData.item.sku
+                  }
                 </div>
                 {showStock && (
                   <div className="text-xs text-gray-400">
-                    Stock: {selectedItem.availableQuantity ?? selectedItem.quantity} {selectedItem.unit}
+                    Stock: {selectedData.dimension 
+                      ? selectedData.dimension.availableQuantity 
+                      : (selectedData.item.availableQuantity || 0)
+                    } {selectedData.item.unit}
                   </div>
                 )}
               </div>
@@ -145,72 +200,77 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
             />
           </div>
 
-          {/* Items List */}
+          {/* Dimension Options List */}
           <div className="overflow-y-auto max-h-64">
             {loading ? (
               <div className="px-4 py-8 text-center text-gray-500">
                 Loading...
               </div>
-            ) : filteredItems.length === 0 ? (
+            ) : itemOptions.length === 0 ? (
               <div className="px-4 py-8 text-center text-gray-500">
                 {searchTerm ? 'No items found' : 'No items available'}
               </div>
             ) : (
-              filteredItems.map((item) => (
-                <button
-                  key={item._id}
-                  type="button"
-                  onClick={() => handleSelect(item)}
-                  disabled={availableOnly && (item.availableQuantity ?? item.quantity) <= 0}
-                  className={`
-                    w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50
-                    border-b border-gray-100 last:border-b-0
-                    ${(availableOnly && (item.availableQuantity ?? item.quantity) <= 0) 
-                      ? 'opacity-50 cursor-not-allowed' 
-                      : 'cursor-pointer'
-                    }
-                  `}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-medium text-gray-900 truncate">
-                          {item.name}
-                        </span>
-                        {showStock && getStockIcon(item)}
-                      </div>
-                      <div className="text-sm text-gray-600 truncate">
-                        SKU: {item.sku}
-                      </div>
-                      {item.dimensions && (
-                        <div className="text-sm text-gray-500 truncate">
-                          Dimensions: {item.dimensions}
+              itemOptions.map((option) => {
+                const optionKey = option.dimension ? option.dimension.sku : option.item.sku;
+                const availableQty = option.dimension ? option.dimension.availableQuantity : (option.item.availableQuantity || 0);
+                
+                return (
+                  <button
+                    key={optionKey}
+                    type="button"
+                    onClick={() => handleSelect(option.item, option.dimension)}
+                    disabled={availableOnly && availableQty <= 0}
+                    className={`
+                      w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50
+                      border-b border-gray-100 last:border-b-0
+                      ${(availableOnly && availableQty <= 0) 
+                        ? 'opacity-50 cursor-not-allowed' 
+                        : 'cursor-pointer'
+                      }
+                    `}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium text-gray-900 truncate">
+                            {option.item.name}
+                          </span>
+                          {showStock && getStockIcon(option.item, option.dimension)}
                         </div>
-                      )}
-                      {item.description && (
-                        <div className="text-xs text-gray-400 truncate mt-1">
-                          {item.description}
+                        <div className="text-sm text-gray-600 truncate">
+                          SKU: {optionKey}
+                        </div>
+                        {option.dimension && (
+                          <div className="text-sm text-gray-500 truncate">
+                            Dimension: {option.dimension.dimension}
+                          </div>
+                        )}
+                        {option.item.description && (
+                          <div className="text-xs text-gray-400 truncate mt-1">
+                            {option.item.description}
+                          </div>
+                        )}
+                      </div>
+                      {showStock && (
+                        <div className="ml-4 text-right flex-shrink-0">
+                          {getStockText(option.item, option.dimension)}
                         </div>
                       )}
                     </div>
-                    {showStock && (
-                      <div className="ml-4 text-right flex-shrink-0">
-                        {getStockText(item)}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              ))
+                  </button>
+                );
+              })
             )}
           </div>
 
           {/* Clear Selection */}
-          {selectedItem && (
+          {selectedData && (
             <div className="border-t border-gray-200 p-2">
               <button
                 type="button"
                 onClick={() => {
-                  onChange(null);
+                  onChange(null, null);
                   setIsOpen(false);
                   setSearchTerm('');
                 }}

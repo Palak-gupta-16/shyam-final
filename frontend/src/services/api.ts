@@ -247,13 +247,50 @@ export const inventoryAPI = {
     return response.data;
   },
 
-  addInventoryItem: async (data: Omit<InventoryItem, '_id' | 'createdAt' | 'updatedAt'>): Promise<ApiResponse<InventoryItem>> => {
+  addInventoryItem: async (data: {
+    sku?: string; // Optional - will be auto-generated if not provided
+    type: 'finished_product' | 'raw_material' | 'store_item';
+    name: string;
+    // For finished products
+    dimensions?: {
+      dimension: string;
+      quantity: number;
+      bundles: number;
+      minimumStock: number;
+      maxStock?: number;
+    }[];
+    // For raw materials and store items
+    quantity?: number;
+    bundles?: number;
+    minimumStock?: number;
+    maxStock?: number;
+    unit: string;
+    location?: string;
+    description?: string;
+    length?: number;
+  }): Promise<ApiResponse<InventoryItem>> => {
     const response: AxiosResponse<ApiResponse<InventoryItem>> = await api.post('/inventory', data);
     return response.data;
   },
 
-  updateInventoryItem: async (itemId: string, data: { quantity: number; action?: 'set' | 'add' | 'subtract' }): Promise<ApiResponse<InventoryItem>> => {
+  updateInventoryItem: async (itemId: string, data: { 
+    dimensionId: string;
+    quantity: number; 
+    bundles?: number;
+    action?: 'set' | 'add' | 'subtract' 
+  }): Promise<ApiResponse<InventoryItem>> => {
     const response: AxiosResponse<ApiResponse<InventoryItem>> = await api.patch(`/inventory/${itemId}`, data);
+    return response.data;
+  },
+
+  addDimensionToItem: async (itemId: string, data: {
+    dimension: string;
+    quantity: number;
+    bundles: number;
+    minimumStock: number;
+    maxStock?: number;
+  }): Promise<ApiResponse<InventoryItem>> => {
+    const response: AxiosResponse<ApiResponse<InventoryItem>> = await api.post(`/inventory/${itemId}/dimensions`, data);
     return response.data;
   },
 
@@ -261,6 +298,14 @@ export const inventoryAPI = {
     const response: AxiosResponse<InventoryItem[]> = await api.get(`/inventory/type/${type}`, {
       params: { available_only: availableOnly }
     });
+    return response.data;
+  },
+
+  getInventoryByDimensionSku: async (dimensionSku: string): Promise<{
+    item: InventoryItem;
+    dimension: any;
+  }> => {
+    const response = await api.get(`/inventory/dimension/${dimensionSku}`);
     return response.data;
   },
 
@@ -279,9 +324,20 @@ export const inventoryAPI = {
 
   reserveInventory: async (data: {
     inventoryItemId: string;
+    dimensionId: string;
     quantity: number;
     orderId: string;
-  }): Promise<ApiResponse<{ _id: string; name: string; availableQuantity: number; reservedQuantity: number }>> => {
+  }): Promise<ApiResponse<{ 
+    _id: string; 
+    name: string; 
+    dimension: {
+      _id: string;
+      dimension: string;
+      sku: string;
+      availableQuantity: number;
+      reservedQuantity: number;
+    }
+  }>> => {
     const response = await api.post('/inventory/reserve', data);
     return response.data;
   },

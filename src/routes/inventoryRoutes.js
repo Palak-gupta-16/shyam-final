@@ -1,7 +1,7 @@
 const express = require('express');
 const { inventoryController } = require('../controllers');
 const { authenticate, authorize, logActivity, validate } = require('../middlewares');
-const { createInventorySchema, updateInventorySchema } = require('../validators');
+const { createInventorySchema, updateInventorySchema, addDimensionSchema } = require('../validators');
 
 const router = express.Router();
 
@@ -56,6 +56,19 @@ router.post('/reserve',
 // Search inventory items
 router.get('/search',
   inventoryController.searchInventory
+);
+
+// Add dimension to existing inventory item
+router.post('/:id/dimensions',
+  authorize('General_Manager', 'Director', 'Store_Keeper'),
+  validate(addDimensionSchema),
+  logActivity('INVENTORY_ADD_DIMENSION', 'Inventory'),
+  inventoryController.addDimensionToItem
+);
+
+// Get inventory by dimension SKU
+router.get('/dimension/:dimensionSku',
+  inventoryController.getInventoryByDimensionSku
 );
 
 module.exports = router;
