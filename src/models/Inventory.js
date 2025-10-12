@@ -68,7 +68,7 @@ const inventorySchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['finished_product', 'raw_material', 'store_item'],
+    enum: ['finished_product', 'raw_material', 'store_item', 'waste_material'],
   },
   status: {
     type: String,
@@ -289,6 +289,24 @@ inventorySchema.methods.addDimension = function(dimensionData) {
   
   this.dimensions.push(newDimension);
   return this.dimensions[this.dimensions.length - 1];
+};
+
+// Instance method to consume inventory (for raw materials and store items without dimensions)
+inventorySchema.methods.consumeInventory = function(quantity) {
+  if (this.type === 'finished_product') {
+    // For finished products, use consumeInventoryForDimension instead
+    return false;
+  }
+  
+  if (this.availableQuantity < quantity) {
+    return false; // Not enough available quantity
+  }
+  
+  this.availableQuantity -= quantity;
+  // Note: We don't reduce the total quantity as it represents total stock
+  // availableQuantity represents what's currently available for use
+  
+  return true;
 };
 
 // Static method to find available inventory for a product with specific dimension

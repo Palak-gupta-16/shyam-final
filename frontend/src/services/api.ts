@@ -17,7 +17,9 @@ import {
   PaginatedResponse,
   OrdersResponse,
   GatePassesResponse,
-  RawMaterialUsage
+  RawMaterialUsage,
+  ProductionDimension,
+  WasteMaterial
 } from '../types';
 
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -249,7 +251,7 @@ export const inventoryAPI = {
 
   addInventoryItem: async (data: {
     sku?: string; // Optional - will be auto-generated if not provided
-    type: 'finished_product' | 'raw_material' | 'store_item';
+    type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
     name: string;
     // For finished products
     dimensions?: {
@@ -408,12 +410,15 @@ export const millAPI = {
     date: string;
     name: string;
     dimensions?: string;
-    billetSize: string;
     rawMaterials: RawMaterialUsage[];
+    finishedProduct: {
+      inventoryItemId: string;
+      dimensions: ProductionDimension[];
+    };
+    wasteMaterials?: WasteMaterial[];
     totalPieces: number;
     totalWeight: number;
     breakdownSummary?: string;
-    totalMissRolls?: number;
     productionHours?: number;
     efficiency?: number;
     remarks?: string;
@@ -422,16 +427,18 @@ export const millAPI = {
     return response.data;
   },
 
-  getAvailableRawMaterials: async (): Promise<ApiResponse<{
+  getAvailableRawMaterials: async (): Promise<{
+    message: string;
     materials: InventoryItem[];
-  }>> => {
+  }> => {
     const response = await api.get('/mill/raw-materials');
     return response.data;
   },
 
-  getAvailableFinishedProducts: async (): Promise<ApiResponse<{
+  getAvailableFinishedProducts: async (): Promise<{
+    message: string;
     products: InventoryItem[];
-  }>> => {
+  }> => {
     const response = await api.get('/mill/finished-products');
     return response.data;
   },

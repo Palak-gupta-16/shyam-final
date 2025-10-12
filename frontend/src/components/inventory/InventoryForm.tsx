@@ -11,7 +11,7 @@ interface InventoryFormProps {
 
 export interface InventoryFormData {
   sku?: string; // Optional - will be auto-generated if not provided
-  type: 'finished_product' | 'raw_material' | 'store_item';
+  type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
   name: string;
   // For finished products
   dimensions?: {
@@ -117,7 +117,7 @@ const InventoryForm: React.FC<InventoryFormProps> = ({
     }
   };
 
-  const handleTypeChange = (newType: 'finished_product' | 'raw_material' | 'store_item') => {
+  const handleTypeChange = (newType: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material') => {
     setFormData(prev => {
       const newData: InventoryFormData = {
         ...prev,
@@ -238,6 +238,7 @@ const InventoryForm: React.FC<InventoryFormProps> = ({
               <option value="finished_product">Finished Product</option>
               <option value="raw_material">Raw Material</option>
               <option value="store_item">Store Item</option>
+              <option value="waste_material">Waste Material</option>
             </select>
             {errors.type && <p className="text-red-500 text-xs mt-1">{errors.type}</p>}
           </div>

@@ -4,7 +4,7 @@ import { InventoryItem, InventoryDimension } from '../../types';
 import { inventoryAPI } from '../../services/api';
 
 interface InventoryDropdownProps {
-  type: 'finished_product' | 'raw_material' | 'store_item';
+  type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
   value: string | null; // This will be the dimension SKU
   onChange: (item: InventoryItem | null, dimension?: InventoryDimension | null) => void;
   placeholder?: string;

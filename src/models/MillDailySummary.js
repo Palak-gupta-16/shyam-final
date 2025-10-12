@@ -15,15 +15,25 @@ const millDailySummarySchema = new mongoose.Schema({
       },
       materialName: { type: String, required: true },
       quantityUsed: { type: Number, required: true, min: 0 }, // in KG or ton
-      unit: { type: String, default: 'mg' }
+      unit: { type: String, default: 'mt' }
     }
   ],
   finishedProduct: {
     inventoryItemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Inventory'
-    }
+    },
+    dimensions: [{
+      dimension: { type: String, required: true },
+      bundles: { type: Number, required: true, min: 0 },
+      quantity: { type: Number, required: true, min: 0 }
+    }]
   },
+  wasteMaterials: [{
+    materialName: { type: String, required: true, trim: true },
+    quantity: { type: Number, required: true, min: 0 },
+    unit: { type: String, default: 'mt', trim: true }
+  }],
   name: {
     type: String,
     required: true,
@@ -31,11 +41,6 @@ const millDailySummarySchema = new mongoose.Schema({
   },
   dimensions: {
     type: String,
-    trim: true
-  },
-   billetSize: {
-    type: String,
-    required: true,
     trim: true
   },
   totalPieces: {
@@ -59,11 +64,7 @@ const millDailySummarySchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  totalMissRolls: {
-    type: Number,
-    min: 0,
-    default: 0
-  },
+
   productionHours: {
     type: Number,
     min: 0,

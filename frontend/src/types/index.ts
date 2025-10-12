@@ -143,7 +143,7 @@ export interface InventoryDimension {
 export interface InventoryItem {
   _id: string;
   sku: string;
-  type: 'finished_product' | 'raw_material' | 'store_item';
+  type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
   status: 'available' | 'needed' | 'low_stock' | 'out_of_stock' | 'blocked';
   name: string;
   // For finished products
@@ -220,21 +220,33 @@ export interface MillDailySummary {
   date: string;
   name: string; // Finished product name
   dimensions?: string; 
-  billetSize: string;
   totalPieces: number;
   totalWeight: number;
   breakdownSummary?: string;
   createdBy: User;
-  totalMissRolls?: number;
   productionHours?: number;
   efficiency?: number;
   remarks?: string;
   rawMaterials?: RawMaterialUsage[];
   finishedProduct?: {
     inventoryItemId?: string;
+    dimensions?: ProductionDimension[];
   };
+  wasteMaterials?: WasteMaterial[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProductionDimension {
+  dimension: string;
+  bundles: number;
+  quantity: number;
+}
+
+export interface WasteMaterial {
+  materialName: string;
+  quantity: number;
+  unit: string;
 }
 
 // Store Issuance types

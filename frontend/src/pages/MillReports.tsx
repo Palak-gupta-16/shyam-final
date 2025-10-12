@@ -18,7 +18,7 @@ import Modal from '../components/common/Modal';
 import Table from '../components/common/Table';
 import InventoryDropdown from '../components/common/InventoryDropdown';
 import { millAPI } from '../services/api';
-import { MillHourlyReport, MillDailySummary, InventoryItem, RawMaterialUsage } from '../types';
+import { MillHourlyReport, MillDailySummary, InventoryItem, RawMaterialUsage, ProductionDimension, WasteMaterial } from '../types';
 
 const MillReports: React.FC = () => {
   const [hourlyReports, setHourlyReports] = useState<MillHourlyReport[]>([]);
@@ -111,10 +111,10 @@ const fetchReports = useCallback(async () => {
         color: 'primary' as const
       },
       {
-        title: 'Miss Rolls',
+        title: 'Total Weight',
         value: lastSummary
-          ? `${(lastSummary.totalMissRolls || 0).toLocaleString()}`
-          : '0',
+          ? `${(lastSummary.totalWeight || 0).toFixed(2)} mt`
+          : '0 mt',
         icon: Gauge,
         color: 'warning' as const
       },
@@ -151,10 +151,8 @@ const fetchReports = useCallback(async () => {
     { key: 'date', title: 'Date', render: (v: string) => new Date(v).toLocaleDateString() },
     { key: 'name', title: 'Name' },
     { key: 'dimensions', title: 'Dimensions' },
-    { key: 'billetSize', title: 'Billet Size' },
     { key: 'totalPieces', title: 'Pieces', align: 'right' as const },
-    { key: 'totalWeight', title: 'Weight', align: 'right' as const },
-    { key: 'totalMissRolls', title: 'Miss Rolls', align: 'right' as const },
+    { key: 'totalWeight', title: 'Weight (mt)', align: 'right' as const },
     { key: 'productionHours', title: 'Prod. Hours', align: 'right' as const },
     { key: 'efficiency', title: 'Efficiency (%)', align: 'right' as const },
     { key: 'breakdownSummary', title: 'Breakdown Summary' }
@@ -267,22 +265,55 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     date: defaultDate,
     name: '',
     dimensions: '',
-    billetSize: '',
     totalPieces: 0,
     totalWeight: 0,
     breakdownSummary: '',
-    totalMissRolls: 0,
     productionHours: 0,
     efficiency: 0,
     remarks: '',
-    finishedProduct: { inventoryItemId: '' },
+    finishedProduct: { 
+      inventoryItemId: '',
+      dimensions: [{ dimension: '', bundles: 0, quantity: 0 }] as ProductionDimension[]
+    },
     rawMaterials: [
-      { inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }
-    ] as RawMaterialUsage[]
+      { inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'mt' }
+    ] as RawMaterialUsage[],
+    wasteMaterials: [
+      { materialName: '', quantity: 0, unit: 'mt' }
+    ] as WasteMaterial[]
   });
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [finishedProductItem, setFinishedProductItem] = useState<InventoryItem | null>(null);
+  const [availableDimensions, setAvailableDimensions] = useState<string[]>([]);
+  const [availableFinishedProducts, setAvailableFinishedProducts] = useState<InventoryItem[]>([]);
+  const [availableRawMaterials, setAvailableRawMaterials] = useState<InventoryItem[]>([]);
+
+  // Fetch available products on modal open
+  useEffect(() => {
+    if (isOpen) {
+      fetchAvailableProducts();
+    }
+  }, [isOpen]);
+
+  const fetchAvailableProducts = async () => {
+    try {
+      const [finishedRes, rawRes] = await Promise.all([
+        millAPI.getAvailableFinishedProducts(),
+        millAPI.getAvailableRawMaterials()
+      ]);
+      console.log('Finished products response:', finishedRes);
+      console.log('Raw materials response:', rawRes);
+      const finishedProducts = finishedRes.products || [];
+      const rawMaterials = rawRes.materials || [];
+      console.log('Setting finished products:', finishedProducts.length, finishedProducts);
+      console.log('Setting raw materials:', rawMaterials.length, rawMaterials);
+      setAvailableFinishedProducts(finishedProducts);
+      setAvailableRawMaterials(rawMaterials);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
+  };
 
   const handleMaterialChange = (index: number, key: string, value: any) => {
     const updated = [...form.rawMaterials];
@@ -291,13 +322,13 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     setValidationErrors([]); // Clear validation errors when user makes changes
   };
 
-  const handleMaterialSelect = (index: number, item: InventoryItem | null) => {
+  const handleMaterialSelect = (index: number, item: InventoryItem | null, dimension?: any) => {
     const updated = [...form.rawMaterials];
     updated[index] = {
       ...updated[index],
       inventoryItemId: item?._id || '',
       materialName: item?.name || '',
-      unit: item?.unit || 'kg'
+      unit: 'mt' // Always use mt
     };
     setForm({ ...form, rawMaterials: updated });
     setValidationErrors([]);
@@ -316,20 +347,85 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     setForm({ ...form, rawMaterials: updated });
   };
 
+  // Dimension handlers
+  const handleDimensionChange = (index: number, key: keyof ProductionDimension, value: any) => {
+    const updated = [...form.finishedProduct.dimensions];
+    updated[index] = { ...updated[index], [key]: value };
+    setForm({ 
+      ...form, 
+      finishedProduct: { ...form.finishedProduct, dimensions: updated }
+    });
+    setValidationErrors([]);
+  };
+
+  const addDimension = () => {
+    setForm({
+      ...form,
+      finishedProduct: {
+        ...form.finishedProduct,
+        dimensions: [...form.finishedProduct.dimensions, { dimension: '', bundles: 0, quantity: 0 }]
+      }
+    });
+  };
+
+  const removeDimension = (index: number) => {
+    const updated = [...form.finishedProduct.dimensions];
+    updated.splice(index, 1);
+    setForm({ 
+      ...form, 
+      finishedProduct: { ...form.finishedProduct, dimensions: updated }
+    });
+  };
+
+  // Waste material handlers
+  const handleWasteChange = (index: number, key: keyof WasteMaterial, value: any) => {
+    const updated = [...form.wasteMaterials];
+    updated[index] = { ...updated[index], [key]: value };
+    setForm({ ...form, wasteMaterials: updated });
+    setValidationErrors([]);
+  };
+
+  const addWasteMaterial = () => {
+    setForm({
+      ...form,
+      wasteMaterials: [...form.wasteMaterials, { materialName: '', quantity: 0, unit: 'kg' }]
+    });
+  };
+
+  const removeWasteMaterial = (index: number) => {
+    const updated = [...form.wasteMaterials];
+    updated.splice(index, 1);
+    setForm({ ...form, wasteMaterials: updated });
+  };
+
   const validateForm = () => {
     const errors: string[] = [];
     
-    if (!form.name.trim()) {
-      errors.push('Product name is required');
+    if (!form.finishedProduct.inventoryItemId) {
+      errors.push('Finished product must be selected');
     }
     
-    if (!form.billetSize.trim()) {
-      errors.push('Billet size is required');
-    }
+
     
     if (form.totalWeight <= 0) {
       errors.push('Total weight must be greater than 0');
     }
+    
+    if (form.finishedProduct.dimensions.length === 0) {
+      errors.push('At least one dimension is required');
+    }
+    
+    form.finishedProduct.dimensions.forEach((dim, index) => {
+      if (!dim.dimension.trim()) {
+        errors.push(`Dimension ${index + 1}: Please select a dimension`);
+      }
+      if (dim.bundles <= 0) {
+        errors.push(`Dimension ${index + 1}: Bundles must be greater than 0`);
+      }
+      if (dim.quantity <= 0) {
+        errors.push(`Dimension ${index + 1}: Quantity must be greater than 0`);
+      }
+    });
     
     if (form.rawMaterials.length === 0) {
       errors.push('At least one raw material is required');
@@ -368,18 +464,21 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         date: defaultDate,
         name: '',
         dimensions: '',
-        billetSize: '',
         totalPieces: 0,
         totalWeight: 0,
         breakdownSummary: '',
-        totalMissRolls: 0,
         productionHours: 0,
         efficiency: 0,
         remarks: '',
-        finishedProduct: { inventoryItemId: '' },
-        rawMaterials: [{ inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }]
+        finishedProduct: { 
+          inventoryItemId: '',
+          dimensions: [{ dimension: '', bundles: 0, quantity: 0 }]
+        },
+        rawMaterials: [{ inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'mt' }],
+        wasteMaterials: [{ materialName: '', quantity: 0, unit: 'mt' }]
       });
       setFinishedProductItem(null);
+      setAvailableDimensions([]);
     } catch (error: any) {
       console.error('Error creating daily summary:', error);
       if (error.response?.data?.errors) {
@@ -416,7 +515,7 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         )}
 
         {/* Basic Information */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           <Input 
             label="Date" 
             type="date" 
@@ -424,42 +523,136 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
             onChange={e => setForm({...form, date: e.target.value})} 
             required 
           />
-          <Input 
-            label="Billet Size" 
-            value={form.billetSize} 
-            onChange={e => setForm({...form, billetSize: e.target.value})} 
-            required 
-            placeholder="e.g., 150x150mm"
-          />
         </div>
 
         {/* Product Information */}
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Finished Product</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InventoryDropdown
-              type="finished_product"
-              value={form.finishedProduct?.inventoryItemId || null}
-              onChange={(item) => {
-                if (item) {
-                  setForm({
-                    ...form,
-                    name: item.name,
-                    dimensions: item.dimensions || '',
-                    finishedProduct: { inventoryItemId: item._id }
-                  });
-                }
-              }}
-              placeholder="Select finished product..."
-              showStock={true}
-            />
-            <Input 
-              label="Dimensions" 
-              value={form.dimensions} 
-              onChange={e => setForm({...form, dimensions: e.target.value})} 
-              placeholder="e.g., 12mm x 6m"
-              disabled
-            />
+          <div className="mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Finished Product
+              </label>
+              <select
+                value={form.finishedProduct?.inventoryItemId || ''}
+                onChange={(e) => {
+                  const selectedItem = availableFinishedProducts.find(item => item._id === e.target.value);
+                  if (selectedItem) {
+                    setForm({
+                      ...form,
+                      name: selectedItem.name,
+                      dimensions: Array.isArray(selectedItem.dimensions) ? selectedItem.dimensions.map(d => d.dimension).join(', ') : (selectedItem.dimensions || ''),
+                      finishedProduct: { 
+                        inventoryItemId: selectedItem._id,
+                        dimensions: [{ dimension: '', bundles: 0, quantity: 0 }]
+                      }
+                    });
+                    setFinishedProductItem(selectedItem);
+                    // Extract available dimensions from inventory item
+                    if (selectedItem.dimensions && Array.isArray(selectedItem.dimensions)) {
+                      const dims = selectedItem.dimensions.map((d: any) => d.dimension);
+                      setAvailableDimensions(dims);
+                    } else if (typeof selectedItem.dimensions === 'string') {
+                      setAvailableDimensions([selectedItem.dimensions]);
+                    }
+                  } else {
+                    // Clear form when no item selected
+                    setForm({
+                      ...form,
+                      name: '',
+                      dimensions: '',
+                      finishedProduct: { 
+                        inventoryItemId: '',
+                        dimensions: [{ dimension: '', bundles: 0, quantity: 0 }]
+                      }
+                    });
+                    setFinishedProductItem(null);
+                    setAvailableDimensions([]);
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="">Select finished product...</option>
+                {(() => {
+                  console.log('Rendering finished products:', availableFinishedProducts.length, availableFinishedProducts);
+                  return availableFinishedProducts.map((item) => (
+                    <option key={item._id} value={item._id}>
+                      {item.name} - {item.availableQuantity || 0} {item.unit} available ({item.status})
+                    </option>
+                  ));
+                })()}
+              </select>
+            </div>
+          </div>
+
+          {/* Multi-dimensional Product Input */}
+          <div className="space-y-4">
+            <h4 className="text-md font-medium text-gray-800">Production Dimensions</h4>
+            {form.finishedProduct.dimensions.map((dim, index) => (
+              <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Dimension {index + 1}
+                    </label>
+                    <select
+                      value={dim.dimension}
+                      onChange={e => handleDimensionChange(index, 'dimension', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    >
+                      <option value="">Select dimension...</option>
+                      {availableDimensions.map((dimension) => (
+                        <option key={dimension} value={dimension}>
+                          {dimension}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Input
+                    label="Bundles"
+                    type="number"
+                    value={dim.bundles}
+                    onChange={e => handleDimensionChange(index, 'bundles', Number(e.target.value))}
+                    required
+                    min="0"
+                    placeholder="0"
+                  />
+                  <Input
+                    label="Quantity (mt)"
+                    type="number"
+                    value={dim.quantity}
+                    onChange={e => handleDimensionChange(index, 'quantity', Number(e.target.value))}
+                    required
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => removeDimension(index)}
+                      disabled={form.finishedProduct.dimensions.length === 1}
+                      className="w-full"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <Button 
+              type="button" 
+              variant="secondary" 
+              onClick={addDimension}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Dimension
+            </Button>
           </div>
         </div>
 
@@ -474,7 +667,7 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
             min="0"
           />
           <Input 
-            label="Total Weight (kg)" 
+            label="Total Weight (mt)" 
             type="number" 
             value={form.totalWeight} 
             onChange={e => setForm({...form, totalWeight: Number(e.target.value)})} 
@@ -513,18 +706,28 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Raw Material {index + 1}
                     </label>
-                    <InventoryDropdown
-                      type="raw_material"
-                      value={material.inventoryItemId || null}
-                      onChange={(item) => handleMaterialSelect(index, item)}
-                      placeholder="Select raw material..."
+                    <select
+                      value={material.inventoryItemId || ''}
+                      onChange={(e) => {
+                        const selectedItem = availableRawMaterials.find(item => item._id === e.target.value);
+                        handleMaterialSelect(index, selectedItem || null);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       required
-                      showStock
-                      availableOnly
-                    />
+                    >
+                      <option value="">Select raw material...</option>
+                      {(() => {
+                        console.log('Rendering raw materials:', availableRawMaterials.length, availableRawMaterials);
+                        return availableRawMaterials.map((item) => (
+                          <option key={item._id} value={item._id}>
+                            {item.name} - {item.availableQuantity || 0} {item.unit} available ({item.status})
+                          </option>
+                        ));
+                      })()}
+                    </select>
                   </div>
                   <Input
-                    label="Quantity Used"
+                    label="Quantity Used (mt)"
                     type="number"
                     value={material.quantityUsed}
                     onChange={e => handleMaterialChange(index, 'quantityUsed', Number(e.target.value))}
@@ -565,6 +768,68 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
           </div>
         </div>
 
+        {/* Waste Materials Section */}
+        <div className="bg-orange-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Waste Materials</h3>
+          <div className="space-y-4">
+            {form.wasteMaterials.map((waste, index) => (
+              <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <Input
+                    label={`Waste Material ${index + 1}`}
+                    value={waste.materialName}
+                    onChange={e => handleWasteChange(index, 'materialName', e.target.value)}
+                    placeholder="Material name..."
+                    required
+                  />
+                  <Input
+                    label="Quantity (mt)"
+                    type="number"
+                    value={waste.quantity}
+                    onChange={e => handleWasteChange(index, 'quantity', Number(e.target.value))}
+                    required
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Unit
+                    </label>
+                    <input
+                      type="text"
+                      value="mt"
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-500"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => removeWasteMaterial(index)}
+                      disabled={form.wasteMaterials.length === 1}
+                      className="w-full"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <Button 
+              type="button" 
+              variant="secondary" 
+              onClick={addWasteMaterial}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Waste Material
+            </Button>
+          </div>
+        </div>
+
         {/* Additional Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -593,16 +858,7 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <Input 
-            label="Miss Rolls" 
-            type="number" 
-            value={form.totalMissRolls} 
-            onChange={e => setForm({...form, totalMissRolls: Number(e.target.value)})} 
-            min="0"
-            placeholder="0"
-          />
-        </div>
+
 
         {/* Submit Button */}
         <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">

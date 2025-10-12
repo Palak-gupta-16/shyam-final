@@ -55,15 +55,16 @@ const createHourlyReport = async (req, res) => {
 // Create daily mill summary with robust raw material validation
 const createDailySummary = async (req, res) => {
   try {
+    console.log('Create daily summary request body:', JSON.stringify(req.body, null, 2));
+    
     const { 
       date, 
       rawMaterials, 
       finishedProduct,
-      billetSize, 
+      wasteMaterials,
       totalPieces, 
       totalWeight, 
       breakdownSummary, 
-      totalMissRolls, 
       productionHours, 
       efficiency, 
       remarks 
@@ -81,6 +82,13 @@ const createDailySummary = async (req, res) => {
     if (!finishedProduct || !finishedProduct.inventoryItemId) {
       return res.status(400).json({
         message: 'Finished product inventory item must be selected from existing inventory'
+      });
+    }
+
+    // Validate dimensions are provided
+    if (!finishedProduct.dimensions || finishedProduct.dimensions.length === 0) {
+      return res.status(400).json({
+        message: 'At least one dimension with bundles and quantity must be specified'
       });
     }
 
@@ -109,21 +117,26 @@ const createDailySummary = async (req, res) => {
       });
     }
 
+    // Process waste materials (create inventory items if they don't exist)
+    const processedWasteMaterials = await processWasteMaterials(wasteMaterials || [], req.user._id);
+
     // Create the mill daily summary
     const summary = new MillDailySummary({
       date,
       name: finishedProductItem.name, // Use name from inventory item
-      dimensions: finishedProductItem.dimensions, // Use dimensions from inventory item
-      billetSize,
+      dimensions: Array.isArray(finishedProductItem.dimensions) 
+        ? finishedProductItem.dimensions.map(d => d.dimension).join(', ')
+        : finishedProductItem.dimensions || '', // Convert array to string
       rawMaterials: materialValidation.processedMaterials,
       finishedProduct: {
-        inventoryItemId: finishedProductItem._id
+        inventoryItemId: finishedProductItem._id,
+        dimensions: finishedProduct.dimensions
       },
+      wasteMaterials: processedWasteMaterials,
       totalPieces,
       totalWeight,
       breakdownSummary,
       createdBy: req.user._id,
-      totalMissRolls,
       productionHours,
       efficiency,
       remarks
@@ -135,7 +148,8 @@ const createDailySummary = async (req, res) => {
     await processInventoryChanges(
       materialValidation.processedMaterials,
       finishedProductItem,
-      totalWeight,
+      finishedProduct.dimensions,
+      processedWasteMaterials,
       req.user._id
     );
 
@@ -155,6 +169,7 @@ const createDailySummary = async (req, res) => {
 
   } catch (error) {
     console.error('Create daily summary error:', error);
+    console.error('Error stack:', error.stack);
     
     if (error.code === 11000) {
       return res.status(400).json({ 
@@ -170,7 +185,11 @@ const createDailySummary = async (req, res) => {
       });
     }
     
-    res.status(500).json({ message: 'Server error creating daily summary' });
+    res.status(500).json({ 
+      message: 'Server error creating daily summary',
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
@@ -221,19 +240,12 @@ const validateRawMaterials = async (rawMaterials) => {
       continue;
     }
 
-    // Check if sufficient quantity is available
+    // Check if sufficient quantity is available (only warn, don't block)
     if (inventoryItem.availableQuantity < material.quantityUsed) {
-      validationResult.valid = false;
-      validationResult.errors.push(
-        `Insufficient "${material.materialName}". Required: ${material.quantityUsed}, Available: ${inventoryItem.availableQuantity}`
+      console.warn(
+        `Warning: Insufficient "${material.materialName}". Required: ${material.quantityUsed}, Available: ${inventoryItem.availableQuantity}`
       );
-      validationResult.missingMaterials.push({
-        name: material.materialName,
-        quantityNeeded: material.quantityUsed,
-        available: inventoryItem.availableQuantity,
-        shortfall: material.quantityUsed - inventoryItem.availableQuantity
-      });
-      continue;
+      // Still allow the operation but log the warning
     }
 
     // Add to processed materials
@@ -248,23 +260,131 @@ const validateRawMaterials = async (rawMaterials) => {
   return validationResult;
 };
 
-// Process inventory changes after mill production
-const processInventoryChanges = async (rawMaterials, finishedProductItem, totalWeight, userId) => {
+// Process waste materials - create inventory items if they don't exist
+const processWasteMaterials = async (wasteMaterials, userId) => {
+  const processedWaste = [];
+  
   try {
+    console.log('Processing waste materials:', wasteMaterials);
+    
+    for (const waste of wasteMaterials) {
+      if (!waste.materialName || !waste.quantity) {
+        console.log('Skipping waste material with missing data:', waste);
+        continue;
+      }
+      
+      // Check if waste material already exists in inventory
+      let wasteItem = await Inventory.findOne({
+        name: waste.materialName,
+        type: 'waste_material'
+      });
+      
+      if (!wasteItem) {
+        console.log('Creating new waste material:', waste.materialName);
+        // Create new waste material inventory item
+        wasteItem = new Inventory({
+          name: waste.materialName,
+          type: 'waste_material',
+          unit: 'mt',
+          quantity: waste.quantity,
+          availableQuantity: waste.quantity,
+          sku: `WASTE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          createdBy: userId,
+          lastUpdatedBy: userId
+        });
+        await wasteItem.save();
+        console.log('Created waste material:', wasteItem.sku);
+      } else {
+        console.log('Updating existing waste material:', waste.materialName);
+        // Update existing waste material quantity
+        wasteItem.quantity += waste.quantity;
+        wasteItem.availableQuantity += waste.quantity;
+        wasteItem.lastUpdatedBy = userId;
+        await wasteItem.save();
+      }
+      
+      processedWaste.push({
+        materialName: waste.materialName,
+        quantity: waste.quantity,
+        unit: 'mt'
+      });
+    }
+    
+    console.log('Processed waste materials:', processedWaste);
+    return processedWaste;
+  } catch (error) {
+    console.error('Error processing waste materials:', error);
+    throw error;
+  }
+};
+
+// Process inventory changes after mill production
+const processInventoryChanges = async (rawMaterials, finishedProductItem, dimensions, wasteMaterials, userId) => {
+  try {
+    console.log('Processing inventory changes...');
+    console.log('Raw materials:', rawMaterials);
+    console.log('Finished product item:', finishedProductItem.name);
+    console.log('Dimensions to add:', dimensions);
+    
     // Consume raw materials
     for (const material of rawMaterials) {
+      console.log('Processing raw material:', material.materialName);
       const inventoryItem = await Inventory.findById(material.inventoryItemId);
       if (inventoryItem) {
+        console.log('Found inventory item, consuming:', material.quantityUsed);
         const consumed = inventoryItem.consumeInventory(material.quantityUsed);
         if (consumed) {
           inventoryItem.lastUpdatedBy = userId;
           await inventoryItem.save();
+          console.log('Raw material consumed successfully');
+        } else {
+          console.log('Failed to consume raw material');
         }
+      } else {
+        console.log('Raw material inventory item not found');
       }
     }
 
-    // Add finished product to inventory
-    finishedProductItem.quantity += totalWeight;
+    // Update finished product inventory for each dimension
+    console.log('Updating finished product dimensions...');
+    for (const dim of dimensions) {
+      console.log('Processing dimension:', dim.dimension, 'quantity:', dim.quantity, 'bundles:', dim.bundles);
+      
+      // Find the specific dimension in the inventory item
+      const dimensionIndex = finishedProductItem.dimensions.findIndex(
+        d => d.dimension === dim.dimension
+      );
+      
+      if (dimensionIndex !== -1) {
+        console.log('Found existing dimension at index:', dimensionIndex);
+        // Update existing dimension
+        finishedProductItem.dimensions[dimensionIndex].quantity += dim.quantity;
+        finishedProductItem.dimensions[dimensionIndex].bundles += dim.bundles;
+        finishedProductItem.dimensions[dimensionIndex].availableQuantity += dim.quantity;
+        console.log('Updated dimension:', finishedProductItem.dimensions[dimensionIndex]);
+      } else {
+        console.log('Creating new dimension');
+        // Add new dimension if it doesn't exist
+        const newDimension = {
+          dimension: dim.dimension,
+          quantity: dim.quantity,
+          bundles: dim.bundles,
+          availableQuantity: dim.quantity,
+          sku: `${finishedProductItem.sku}-${dim.dimension.replace(/[^a-zA-Z0-9]/g, '')}`
+        };
+        finishedProductItem.dimensions.push(newDimension);
+        console.log('Added new dimension:', newDimension);
+      }
+    }
+
+    // Update total quantity
+    finishedProductItem.quantity = finishedProductItem.dimensions.reduce(
+      (total, dim) => total + dim.quantity, 0
+    );
+    finishedProductItem.availableQuantity = finishedProductItem.dimensions.reduce(
+      (total, dim) => total + dim.availableQuantity, 0
+    );
+    
     finishedProductItem.lastUpdatedBy = userId;
     await finishedProductItem.save();
 
@@ -284,45 +404,41 @@ const getAvailableRawMaterials = async (req, res) => {
   try {
     const rawMaterials = await Inventory.find({
       type: 'raw_material',
-      status: { $in: ['available', 'low_stock'] },
-      availableQuantity: { $gt: 0 },
       // Exclude system-generated needed items
       sku: { $not: { $regex: '^NEEDED-', $options: 'i' } }
     })
-    .select('_id name dimensions sku quantity availableQuantity unit')
+    .select('_id name dimensions sku quantity availableQuantity unit status type')
     .sort({ name: 1 });
 
     res.json({
-      message: 'Available raw materials retrieved',
+      message: 'Raw materials retrieved',
       materials: rawMaterials
     });
 
   } catch (error) {
-    console.error('Get available raw materials error:', error);
+    console.error('Get raw materials error:', error);
     res.status(500).json({ message: 'Server error fetching raw materials' });
   }
 };
 
-// Get available finished products for selection
+// Get finished products for selection
 const getAvailableFinishedProducts = async (req, res) => {
   try {
     const finishedProducts = await Inventory.find({
       type: 'finished_product',
-      status: { $in: ['available', 'low_stock'] },
-      availableQuantity: { $gt: 0 },
       // Exclude system-generated needed items
       sku: { $not: { $regex: '^NEEDED-', $options: 'i' } }
     })
-    .select('_id name dimensions sku quantity availableQuantity unit')
+    .select('_id name dimensions sku quantity availableQuantity unit status type')
     .sort({ name: 1 });
 
     res.json({
-      message: 'Available finished products retrieved',
+      message: 'Finished products retrieved',
       products: finishedProducts
     });
 
   } catch (error) {
-    console.error('Get available finished products error:', error);
+    console.error('Get finished products error:', error);
     res.status(500).json({ message: 'Server error fetching finished products' });
   }
 };
