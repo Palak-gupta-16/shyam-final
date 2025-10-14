@@ -4,6 +4,7 @@ const { canTransition, getInitialState } = require('../utils/stateMachine');
 
 // Create new order with new workflow
 const createOrder = async (req, res) => {
+  console.log("create_order_post_api_07=>", req.body)
   try {
     const { type, customerOrSupplier, vehicle, products } = req.body;
     console.log('Creating order:', req.body);
@@ -143,6 +144,7 @@ const createOrder = async (req, res) => {
     await order.populate('createdBy', 'name alias');
     await order.populate('products.inventoryItemId', 'name sku availableQuantity');
 
+    console.log("its working with dispatch now")
     res.status(201).json({
       message: 'Order created successfully',
       order,

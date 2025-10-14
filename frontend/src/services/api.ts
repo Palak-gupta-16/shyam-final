@@ -2,10 +2,10 @@ import axios, { AxiosResponse } from 'axios';
 import { 
   User, 
   Order, 
-  InventoryItem, 
-  GatePass, 
-  MillHourlyReport, 
-  MillDailySummary, 
+  InventoryItem,
+  GatePass,
+  MillHourlyReport,
+  MillDailySummary,
   StoreIssuance,
   Fare,
   FareStats,
@@ -121,6 +121,7 @@ getOrdersByStatus: async (params?: {
 
   createOrder: async (data: CreateOrderForm): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.post('/orders', data);
+    console.log("Response_data_124_", response.data)
     return response.data;
   },
 

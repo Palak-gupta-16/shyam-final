@@ -700,7 +700,7 @@ const CreateOrderModal: React.FC<{
       return;
     }
 
-    try {
+    // try {
       setLoading(true);
       
       // Validate that all products have inventory items selected
@@ -720,22 +720,28 @@ const CreateOrderModal: React.FC<{
 
       // Create order first
       const orderResponse = await ordersAPI.createOrder(processedData);
+      console.log("orderResponse_723", orderResponse)
       
       // Then approve dispatch with vehicle info
-      if (orderResponse.data) {
-        await ordersAPI.approveDispatch(orderResponse.data._id, vehicleData);
+      if (orderResponse) {
+        let order_id = orderResponse.order._id;
+
+        console.log("orderResoponse_728:",order_id )
+
+        await ordersAPI.approveDispatch(order_id, vehicleData);
+        
       } else {
-        throw new Error('Failed to create order');
+        throw new Error('Failed to create orderx');
       }
       
       onSuccess();
       resetForm();
-    } catch (error) {
-      console.error('Error dispatching order:', error);
-      alert('Failed to dispatch order. Please check availability and try again.');
-    } finally {
-      setLoading(false);
-    }
+    // } catch (error) {
+    //   console.error('Error dispatching order:', error);
+    //   alert('Failed to dispatch order. Please check availability and try again.');
+    // } finally {
+    //   setLoading(false);
+    // }
   };
 
   const resetForm = () => {
