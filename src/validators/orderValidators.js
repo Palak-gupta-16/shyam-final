@@ -32,13 +32,13 @@ const createOrderSchema = Joi.object({
         'string.max': 'Vehicle number cannot exceed 20 characters'
       }),
 
-      driverNumber: Joi.string()
-    .pattern(/^[0-9]{10}$/)
-    .required()
-    .messages({
-      'string.empty': 'Driver phone number is required',
-      'string.pattern.base': 'Driver phone number must be a valid 10-digit number'
-    }),
+    driverNumber: Joi.string()
+      .pattern(/^[0-9]{10}$/)
+      .required()
+      .messages({
+        'string.empty': 'Driver phone number is required',
+        'string.pattern.base': 'Driver phone number must be a valid 10-digit number'
+      }),
     
     driverName: Joi.string()
       .trim()
@@ -50,11 +50,7 @@ const createOrderSchema = Joi.object({
         'string.min': 'Driver name must be at least 2 characters long',
         'string.max': 'Driver name cannot exceed 100 characters'
       })
-  }).when('type', {
-    is: 'purchase',
-    then: Joi.required(),
-    otherwise: Joi.optional()
-  }),
+  }).optional(),
   
   
   

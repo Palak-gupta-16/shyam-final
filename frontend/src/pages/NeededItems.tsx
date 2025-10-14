@@ -69,7 +69,7 @@ const NeededItems: React.FC = () => {
         priority: filters.priority === 'all' ? undefined : filters.priority,
         canFulfill: filters.canFulfill === 'all' ? undefined : filters.canFulfill
       });
-      setNeededItems(response.data.neededItems);
+      setNeededItems(response.data?.neededItems || []);
     } catch (error) {
       console.error('Error fetching needed items:', error);
     } finally {
@@ -80,7 +80,7 @@ const NeededItems: React.FC = () => {
   const fetchFulfillableItems = async () => {
     try {
       const response = await neededItemsAPI.getFulfillableItems();
-      setFulfillableItems(response.data.fulfillableItems);
+      setFulfillableItems(response.data?.fulfillableItems || []);
     } catch (error) {
       console.error('Error fetching fulfillable items:', error);
     }
@@ -96,16 +96,17 @@ const NeededItems: React.FC = () => {
         notes: 'Fulfilled via needed items management'
       });
 
-      if (response.data.fulfilled.length > 0) {
-        alert(`Successfully fulfilled ${response.data.fulfilled.length} items`);
+      const responseData = response.data;
+      if (responseData && responseData.fulfilled && responseData.fulfilled.length > 0) {
+        alert(`Successfully fulfilled ${responseData.fulfilled.length} items`);
         setSelectedItems([]);
         fetchNeededItems();
         fetchFulfillableItems();
       }
 
-      if (response.data.errors.length > 0) {
-        console.error('Fulfillment errors:', response.data.errors);
-        alert(`${response.data.errors.length} items could not be fulfilled. Check console for details.`);
+      if (responseData && responseData.errors && responseData.errors.length > 0) {
+        console.error('Fulfillment errors:', responseData.errors);
+        alert(`${responseData.errors.length} items could not be fulfilled. Check console for details.`);
       }
     } catch (error) {
       console.error('Error fulfilling items:', error);

@@ -112,17 +112,18 @@ export type OrderStatus =
 
 export interface Product {
   inventoryItemId?: string;
+  inventoryItem?: InventoryItem | null;
   dimensionId?: string;
+  selectedDimension?: InventoryDimension | null;
   name: string;
   dimensions?: string;
+  customDimension?: string;
   quantity: number;
   quantityFulfilled?: number;
   quantityPending?: number;
   weightPerBundle?: number;
   grade?: string;
   unit?: string;
-  availableDimensions?: InventoryDimension[];
-  selectedDimensionStock?: number;
 }
 
 export interface ProductLoad {
@@ -150,6 +151,9 @@ export interface InventoryDimension {
   availableQuantity: number;
   minimumStock: number;
   maxStock?: number;
+  length?: number;
+  location?: string;
+  notes?: string;
   blockedOrders: BlockedOrder[];
   createdAt: string;
   updatedAt: string;

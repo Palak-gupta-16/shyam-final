@@ -17,9 +17,9 @@ import Badge from '../components/common/Badge';
 import OrderCard from '../components/orders/OrderCard';
 import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
-import InventoryDropdown from '../components/common/InventoryDropdown';
 import ProductDropdown from '../components/common/ProductDropdown';
 import DimensionDropdown from '../components/common/DimensionDropdown';
+
 import FareModal from '../components/fares/FareModal';
 import InvoiceModal from '../components/invoices/InvoiceModal';
 import { ordersAPI, fareAPI } from '../services/api';
@@ -584,29 +584,37 @@ const CreateOrderModal: React.FC<{
     },
     products: [{ 
       inventoryItemId: '', 
+      inventoryItem: null,
       name: '', 
       dimensions: '', 
       dimensionId: '', 
+      selectedDimension: null,
       quantity: 0, 
       unit: '', 
-      availableDimensions: [], 
-      selectedDimensionStock: 0 
+      customDimension: ''
     }],
   });
   const [loading, setLoading] = useState(false);
+  const [dispatchMode, setDispatchMode] = useState(false);
+  const [vehicleData, setVehicleData] = useState({
+    number: '',
+    driverName: '',
+    driverNumber: '',
+  });
 
   const addProduct = () => {
     setFormData((prev) => ({
       ...prev,
       products: [...prev.products, { 
         inventoryItemId: '', 
+        inventoryItem: null,
         name: '', 
         dimensions: '', 
         dimensionId: '', 
+        selectedDimension: null,
         quantity: 0, 
         unit: '', 
-        availableDimensions: [], 
-        selectedDimensionStock: 0 
+        customDimension: ''
       }],
     }));
   };
@@ -667,26 +675,131 @@ const CreateOrderModal: React.FC<{
       }
       await ordersAPI.createOrder(processedData);
       onSuccess();
-      setFormData({
-        type: 'dispatch',
-        customerOrSupplier: '',
-        vehicle: { number: '', driverName: '', driverNumber: '' },
-        products: [{ 
-          inventoryItemId: '', 
-          name: '', 
-          dimensions: '', 
-          dimensionId: '', 
-          quantity: 0, 
-          unit: '', 
-          availableDimensions: [], 
-          selectedDimensionStock: 0 
-        }],
-      });
+      resetForm();
     } catch (error) {
       console.error('Error creating order:', error);
-      // TODO: Show toast notification, e.g., toast.error('Failed to create order');
+      alert('Failed to create order. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDispatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate vehicle information
+    if (!vehicleData.number || !vehicleData.driverName || !vehicleData.driverNumber) {
+      alert('Please provide complete vehicle information for dispatch.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Validate that all products have inventory items selected
+      const validProducts = formData.products.filter((p) => p.inventoryItemId && p.quantity > 0);
+      
+      if (validProducts.length === 0) {
+        alert('Please add at least one product with a valid inventory item and quantity.');
+        setLoading(false);
+        return;
+      }
+      
+      const processedData: any = {
+        type: formData.type,
+        customerOrSupplier: formData.customerOrSupplier,
+        products: validProducts,
+      };
+
+      // Create order first
+      const orderResponse = await ordersAPI.createOrder(processedData);
+      
+      // Then approve dispatch with vehicle info
+      if (orderResponse.data) {
+        await ordersAPI.approveDispatch(orderResponse.data._id, vehicleData);
+      } else {
+        throw new Error('Failed to create order');
+      }
+      
+      onSuccess();
+      resetForm();
+    } catch (error) {
+      console.error('Error dispatching order:', error);
+      alert('Failed to dispatch order. Please check availability and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      type: 'dispatch',
+      customerOrSupplier: '',
+      vehicle: { number: '', driverName: '', driverNumber: '' },
+      products: [{ 
+        inventoryItemId: '', 
+        inventoryItem: null,
+        name: '', 
+        dimensions: '', 
+        dimensionId: '', 
+        selectedDimension: null,
+        quantity: 0, 
+        unit: '', 
+        customDimension: ''
+      }],
+    });
+    setVehicleData({
+      number: '',
+      driverName: '',
+      driverNumber: '',
+    });
+    setDispatchMode(false);
+  };
+
+  // Check if all products are available for dispatch
+  const canDispatch = formData.type === 'dispatch' && formData.products.every((product: any) => {
+    if (!product.inventoryItemId || product.quantity <= 0) return false;
+    
+    if (product.selectedDimension) {
+      // Specific dimension selected - must have enough stock
+      return product.selectedDimension.availableQuantity >= product.quantity;
+    } else if (product.inventoryItem && product.inventoryItem.type !== 'finished_product') {
+      // For raw materials and store items, check item-level stock
+      return (product.inventoryItem.availableQuantity || 0) >= product.quantity;
+    } else if (product.inventoryItem && product.inventoryItem.dimensions) {
+      // For finished products without specific dimension, check if ANY dimension can fulfill
+      const totalAvailableStock = product.inventoryItem.dimensions.reduce((total: number, dim: any) => total + dim.availableQuantity, 0);
+      return totalAvailableStock >= product.quantity;
+    } else if (product.customDimension) {
+      // Custom dimension - assume available (will be checked server-side)
+      return true;
+    }
+    
+    return false;
+  });
+
+  // Get dispatch status message
+  const getDispatchStatus = () => {
+    if (formData.type !== 'dispatch') return '';
+    
+    const unavailableProducts = formData.products.filter((product: any) => {
+      if (!product.inventoryItemId || product.quantity <= 0) return true;
+      
+      if (product.selectedDimension) {
+        return product.selectedDimension.availableQuantity < product.quantity;
+      } else if (product.inventoryItem && product.inventoryItem.type !== 'finished_product') {
+        return (product.inventoryItem.availableQuantity || 0) < product.quantity;
+      } else if (product.inventoryItem && product.inventoryItem.dimensions) {
+        const totalAvailableStock = product.inventoryItem.dimensions.reduce((total: number, dim: any) => total + dim.availableQuantity, 0);
+        return totalAvailableStock < product.quantity;
+      }
+      return false;
+    });
+
+    if (unavailableProducts.length === 0) {
+      return 'All products available for dispatch';
+    } else {
+      return `${unavailableProducts.length} product(s) have insufficient stock`;
     }
   };
 
@@ -817,9 +930,9 @@ const CreateOrderModal: React.FC<{
               >
                 {/* Wide Layout for Dispatch Orders */}
                 {formData.type === 'dispatch' ? (
-                  <div className="grid grid-cols-10 gap-6 items-end">
+                  <div className="grid grid-cols-12 gap-4 items-end">
                     {/* Product Selection - Wider */}
-                    <div className="col-span-3">
+                    <div className="col-span-4">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Select Product *
                       </label>
@@ -829,19 +942,23 @@ const CreateOrderModal: React.FC<{
                         onChange={(item: any) => {
                           if (item) {
                             updateProduct(index, 'inventoryItemId', item._id);
+                            updateProduct(index, 'inventoryItem', item);
                             updateProduct(index, 'name', item.name);
                             updateProduct(index, 'unit', item.unit);
                             // Reset dimension selection when product changes
                             updateProduct(index, 'dimensionId', '');
+                            updateProduct(index, 'selectedDimension', null);
                             updateProduct(index, 'dimensions', '');
-                            updateProduct(index, 'availableDimensions', item.dimensions || []);
+                            updateProduct(index, 'customDimension', '');
                           } else {
                             updateProduct(index, 'inventoryItemId', '');
+                            updateProduct(index, 'inventoryItem', null);
                             updateProduct(index, 'name', '');
                             updateProduct(index, 'unit', '');
                             updateProduct(index, 'dimensionId', '');
+                            updateProduct(index, 'selectedDimension', null);
                             updateProduct(index, 'dimensions', '');
-                            updateProduct(index, 'availableDimensions', []);
+                            updateProduct(index, 'customDimension', '');
                           }
                         }}
                         placeholder="Select product..."
@@ -851,35 +968,38 @@ const CreateOrderModal: React.FC<{
                       />
                     </div>
 
-                    {/* Dimension Dropdown with Custom Input - Much Wider */}
-                    <div className="col-span-4">
+                    {/* Dimension Selection - New Component */}
+                    <div className="col-span-5">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Dimension (Select or Enter Custom)
+                        Product Dimension *
                       </label>
                       <DimensionDropdown
-                        availableDimensions={product.availableDimensions || []}
+                        inventoryItem={product.inventoryItem}
                         value={product.dimensionId || null}
-                        customValue={product.dimensions || ''}
                         onChange={(dimension: any) => {
                           if (dimension) {
                             updateProduct(index, 'dimensionId', dimension._id);
+                            updateProduct(index, 'selectedDimension', dimension);
                             updateProduct(index, 'dimensions', dimension.dimension);
-                            updateProduct(index, 'selectedDimensionStock', dimension.availableQuantity);
+                            updateProduct(index, 'customDimension', '');
                           } else {
                             updateProduct(index, 'dimensionId', '');
-                            updateProduct(index, 'selectedDimensionStock', 0);
+                            updateProduct(index, 'selectedDimension', null);
+                            updateProduct(index, 'dimensions', '');
                           }
                         }}
-                        onCustomChange={(customDimension: string) => {
-                          updateProduct(index, 'dimensions', customDimension);
-                          // Clear dimension selection if custom dimension is entered
-                          if (customDimension && product.dimensionId) {
-                            updateProduct(index, 'dimensionId', '');
-                            updateProduct(index, 'selectedDimensionStock', 0);
-                          }
+                        customValue={product.customDimension || ''}
+                        onCustomChange={(value: string) => {
+                          updateProduct(index, 'customDimension', value);
+                          updateProduct(index, 'dimensions', value);
+                          updateProduct(index, 'dimensionId', '');
+                          updateProduct(index, 'selectedDimension', null);
                         }}
-                        placeholder="Select dimension or enter custom..."
+                        placeholder="Select dimension..."
                         showStock={true}
+                        availableOnly={false}
+                        allowCustom={true}
+                        required={true}
                       />
                     </div>
 
@@ -901,39 +1021,85 @@ const CreateOrderModal: React.FC<{
                       />
                     </div>
 
-                    {/* Stock Info */}
+                    {/* Availability Status */}
                     <div className="col-span-1">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Stock
+                        Availability
                       </label>
-                      <Input
-                        placeholder="Stock"
-                        value={
-                          product.dimensionId 
-                            ? `${product.selectedDimensionStock || 0}`
-                            : product.inventoryItemId && product.availableDimensions?.length > 0
-                            ? `${product.availableDimensions.reduce((total: number, dim: any) => total + dim.availableQuantity, 0)}`
-                            : '0'
-                        }
-                        disabled
-                        className="bg-gray-50 text-sm text-center"
-                      />
+                      <div className="flex flex-col items-center justify-center h-10 text-xs">
+                        {(product as any).inventoryItemId && (product as any).quantity > 0 ? (
+                          <>
+                            {(product as any).selectedDimension ? (
+                              // Specific dimension selected
+                              (product as any).selectedDimension.availableQuantity >= (product as any).quantity ? (
+                                <div className="text-center">
+                                  <div className="text-green-600 font-medium">✅ Available</div>
+                                  <div className="text-gray-500">{(product as any).selectedDimension.availableQuantity}/{(product as any).quantity}</div>
+                                </div>
+                              ) : (product as any).selectedDimension.availableQuantity === 0 ? (
+                                <div className="text-center">
+                                  <div className="text-red-600 font-medium">❌ No Stock</div>
+                                  <div className="text-gray-500">0 available</div>
+                                </div>
+                              ) : (
+                                <div className="text-center">
+                                  <div className="text-orange-600 font-medium">⚠️ Partial</div>
+                                  <div className="text-gray-500">Need {(product as any).quantity - (product as any).selectedDimension.availableQuantity} more</div>
+                                </div>
+                              )
+                            ) : (product as any).inventoryItem && (product as any).inventoryItem.type !== 'finished_product' ? (
+                              // Raw material or store item - check item-level stock
+                              ((product as any).inventoryItem.availableQuantity || 0) >= (product as any).quantity ? (
+                                <div className="text-center">
+                                  <div className="text-green-600 font-medium">✅ Available</div>
+                                  <div className="text-gray-500">{(product as any).inventoryItem.availableQuantity}/{(product as any).quantity}</div>
+                                </div>
+                              ) : (
+                                <div className="text-center">
+                                  <div className="text-red-600 font-medium">❌ No Stock</div>
+                                  <div className="text-gray-500">{(product as any).inventoryItem.availableQuantity || 0} available</div>
+                                </div>
+                              )
+                            ) : (product as any).inventoryItem && (product as any).inventoryItem.dimensions && (product as any).inventoryItem.dimensions.length === 0 ? (
+                              // Finished product with no dimensions
+                              <div className="text-center">
+                                <div className="text-blue-600 font-medium">📋 Check Stock</div>
+                                <div className="text-gray-500">Server validation</div>
+                              </div>
+                            ) : (product as any).customDimension ? (
+                              // Custom dimension entered
+                              <div className="text-center">
+                                <div className="text-blue-600 font-medium">🔧 Custom</div>
+                                <div className="text-gray-500">Server validation</div>
+                              </div>
+                            ) : (
+                              // Has dimensions but none selected
+                              <div className="text-center">
+                                <div className="text-yellow-600 font-medium">⚠️ Select Dim</div>
+                                <div className="text-gray-500">Choose dimension</div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-center">
+                            <div className="text-gray-400 font-medium">-</div>
+                            <div className="text-gray-400">No product</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Remove Button */}
-                    <div className="col-span-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Action
-                      </label>
+                    <div className="col-span-1 flex items-end">
                       {formData.products.length > 1 && (
                         <Button
                           type="button"
-                          variant="danger"
+                          variant="ghost"
                           size="sm"
                           onClick={() => removeProduct(index)}
-                          title="Remove product"
+                          className="text-red-600 hover:text-red-800"
                         >
-                          ×
+                          Remove
                         </Button>
                       )}
                     </div>
@@ -951,10 +1117,12 @@ const CreateOrderModal: React.FC<{
                         onChange={(item: any) => {
                           if (item) {
                             updateProduct(index, 'inventoryItemId', item._id);
+                            updateProduct(index, 'inventoryItem', item);
                             updateProduct(index, 'name', item.name);
                             updateProduct(index, 'unit', item.unit);
                           } else {
                             updateProduct(index, 'inventoryItemId', '');
+                            updateProduct(index, 'inventoryItem', null);
                             updateProduct(index, 'name', '');
                             updateProduct(index, 'unit', '');
                           }
@@ -1016,14 +1184,93 @@ const CreateOrderModal: React.FC<{
       </form>
     </div>
 
+    {/* Vehicle Information for Dispatch */}
+    {dispatchMode && formData.type === 'dispatch' && (
+      <div className="border-t pt-4 mt-4">
+        <h4 className="text-lg font-medium text-gray-900 mb-4">Vehicle Information</h4>
+        <div className="grid grid-cols-3 gap-4">
+          <Input
+            label="Vehicle Number *"
+            value={vehicleData.number}
+            onChange={(e) => setVehicleData(prev => ({ ...prev, number: e.target.value }))}
+            required
+            placeholder="e.g., GJ01AB1234"
+          />
+          <Input
+            label="Driver Name *"
+            value={vehicleData.driverName}
+            onChange={(e) => setVehicleData(prev => ({ ...prev, driverName: e.target.value }))}
+            required
+            placeholder="Enter driver name"
+          />
+          <Input
+            label="Driver Phone Number *"
+            value={vehicleData.driverNumber}
+            onChange={(e) => setVehicleData(prev => ({ ...prev, driverNumber: e.target.value }))}
+            required
+            type="tel"
+            pattern="[0-9]{10}"
+            title="Please enter a valid 10-digit phone number"
+            placeholder="e.g., 9876543210"
+          />
+        </div>
+      </div>
+    )}
+
     {/* Fixed footer */}
     <div className="flex justify-end space-x-3 pt-4 border-t mt-4">
       <Button variant="secondary" onClick={onClose}>
         Cancel
       </Button>
-      <Button type="submit" loading={loading} onClick={handleSubmit}>
-        Create Order
-      </Button>
+      
+      {formData.type === 'dispatch' ? (
+        <>
+          {!dispatchMode ? (
+            <>
+              <div className="flex-1 text-left">
+                <div className={`text-sm font-medium ${canDispatch ? 'text-green-600' : 'text-orange-600'}`}>
+                  {getDispatchStatus()}
+                </div>
+              </div>
+              <Button type="submit" loading={loading} onClick={handleSubmit}>
+                Create Draft Order
+              </Button>
+              {canDispatch && (
+                <Button 
+                  type="button" 
+                  loading={loading} 
+                  onClick={() => setDispatchMode(true)}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  Dispatch Now
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button 
+                type="button" 
+                variant="secondary" 
+                onClick={() => setDispatchMode(false)}
+              >
+                Back
+              </Button>
+              <Button 
+                type="submit" 
+                loading={loading} 
+                onClick={handleDispatch}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                Confirm Dispatch
+              </Button>
+            </>
+          )}
+        </>
+      ) : (
+        <Button type="submit" loading={loading} onClick={handleSubmit}>
+          Create Purchase Order
+        </Button>
+      )}
     </div>
   </div>
 </Modal>

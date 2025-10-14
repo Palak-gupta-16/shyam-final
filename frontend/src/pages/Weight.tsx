@@ -293,8 +293,8 @@ const OrdersTable: React.FC<{
       title: 'Vehicle',
       render: (_: any, record: Order) => (
         <div>
-          <div className="font-medium">{record.vehicle.number}</div>
-          <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+          <div className="font-medium">{record.vehicle?.number || 'N/A'}</div>
+          <div className="text-sm text-gray-500">{record.vehicle?.driverName || 'N/A'}</div>
         </div>
       ),
     },
