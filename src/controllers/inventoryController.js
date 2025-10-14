@@ -178,6 +178,9 @@ const updateInventoryItem = async (req, res) => {
 
     // Check if this update can fulfill any blocked orders
     await checkAndFulfillBlockedOrders(item, dimensionId);
+    
+    // Check if this update can fulfill any needed items
+    await checkAndFulfillNeededItems(item, dimensionId);
 
     // Populate the lastUpdatedBy field for response
     await item.populate('lastUpdatedBy', 'name alias');
@@ -511,6 +514,89 @@ const checkAndFulfillBlockedOrders = async (inventoryItem, dimensionId = null) =
   }
 };
 
+// Helper function to check and fulfill needed items when inventory is updated
+const checkAndFulfillNeededItems = async (inventoryItem, dimensionId = null) => {
+  try {
+    const { NeededItem, Order } = require('../models');
+    
+    // Find pending needed items for this inventory item
+    let filter = {
+      inventoryItemId: inventoryItem._id,
+      status: { $in: ['pending', 'partially_fulfilled'] }
+    };
+    
+    if (dimensionId) {
+      filter.dimensionId = dimensionId;
+    }
+    
+    const neededItems = await NeededItem.find(filter)
+      .populate('orderReference.orderId')
+      .sort({ priority: -1, createdAt: 1 });
+
+    for (const neededItem of neededItems) {
+      const fulfillmentCheck = await neededItem.checkFulfillmentPossibility();
+      
+      if (fulfillmentCheck.canFulfill) {
+        const quantityToFulfill = neededItem.quantityNeeded - neededItem.quantityFulfilled;
+        
+        // Reserve inventory
+        let reservationSuccess = false;
+        if (inventoryItem.type === 'finished_product' && dimensionId) {
+          reservationSuccess = inventoryItem.reserveQuantityForDimension(dimensionId, quantityToFulfill);
+        } else {
+          if (inventoryItem.availableQuantity >= quantityToFulfill) {
+            inventoryItem.reservedQuantity += quantityToFulfill;
+            inventoryItem.availableQuantity -= quantityToFulfill;
+            reservationSuccess = true;
+          }
+        }
+        
+        if (reservationSuccess) {
+          // Update needed item
+          neededItem.quantityFulfilled = neededItem.quantityNeeded;
+          neededItem.fulfilledAt = new Date();
+          neededItem.notes = 'Auto-fulfilled when inventory became available';
+          
+          await neededItem.save();
+          
+          // Check if order can now be dispatched
+          const order = neededItem.orderReference.orderId;
+          if (order) {
+            const remainingNeededItems = await NeededItem.find({
+              'orderReference.orderId': order._id,
+              status: { $in: ['pending', 'partially_fulfilled'] }
+            });
+            
+            if (remainingNeededItems.length === 0) {
+              order.canDispatch = true;
+              order.isBlocked = false;
+              order.blockedReason = null;
+              order.fulfilledAt = new Date();
+              
+              order.history.push({
+                by: order.createdBy,
+                from: order.status,
+                to: order.status,
+                note: 'All needed items auto-fulfilled - order ready for dispatch',
+                at: new Date()
+              });
+              
+              await order.save();
+            }
+          }
+        }
+      }
+    }
+    
+    if (inventoryItem.isModified()) {
+      await inventoryItem.save();
+    }
+    
+  } catch (error) {
+    console.error('Error checking and fulfilling needed items:', error);
+  }
+};
+
 module.exports = {
   getInventory,
   addInventoryItem,
@@ -522,5 +608,6 @@ module.exports = {
   reserveInventory,
   addDimensionToItem,
   getInventoryByDimensionSku,
-  checkAndFulfillBlockedOrders
+  checkAndFulfillBlockedOrders,
+  checkAndFulfillNeededItems
 };

@@ -2,6 +2,7 @@
 const User = require('./User');
 const Order = require('./Order');
 const Inventory = require('./Inventory');
+const NeededItem = require('./NeededItem');
 const GatePass = require('./GatePass');
 const MillHourlyReport = require('./MillHourlyReport');
 const MillDailySummary = require('./MillDailySummary');
@@ -14,6 +15,7 @@ module.exports = {
   User,
   Order,
   Inventory,
+  NeededItem,
   GatePass,
   MillHourlyReport,
   MillDailySummary,

@@ -16,6 +16,9 @@ const orderSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
+      // Initial creation states
+      'draft', // New state for orders created without vehicle info
+      'pending_dispatch_approval', // New state for dispatch orders ready for vehicle info
       // Dispatch states
       'pending_guard_approval',
       'inside_factory_pending_empty_weight',
@@ -41,17 +44,14 @@ const orderSchema = new mongoose.Schema({
   vehicle: {
     number: {
       type: String,
-      required: true,
       trim: true
     },
     driverName: {
       type: String,
-      required: true,
       trim: true
     },
     driverNumber: {
       type: String,
-      required: true,
       trim: true
     }
   },
@@ -59,6 +59,9 @@ const orderSchema = new mongoose.Schema({
     inventoryItemId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Inventory'
+    },
+    dimensionId: {
+      type: mongoose.Schema.Types.ObjectId
     },
     name: {
       type: String,
@@ -68,10 +71,6 @@ const orderSchema = new mongoose.Schema({
     dimensions: {
       type: String,
       trim: true,
-    },
-    length: {
-      type: String,
-      trim: true
     },
     quantity: {
       type: Number,
@@ -263,6 +262,32 @@ const orderSchema = new mongoose.Schema({
   blockedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  neededItems: [{
+    productName: {
+      type: String,
+      required: true
+    },
+    dimensions: {
+      type: String
+    },
+    quantityNeeded: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    inventoryItemId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Inventory'
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  canDispatch: {
+    type: Boolean,
+    default: false
   },
   fulfilledAt: {
     type: Date

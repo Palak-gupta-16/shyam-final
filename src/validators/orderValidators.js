@@ -50,7 +50,11 @@ const createOrderSchema = Joi.object({
         'string.min': 'Driver name must be at least 2 characters long',
         'string.max': 'Driver name cannot exceed 100 characters'
       })
-  }).required(),
+  }).when('type', {
+    is: 'purchase',
+    then: Joi.required(),
+    otherwise: Joi.optional()
+  }),
   
   
   

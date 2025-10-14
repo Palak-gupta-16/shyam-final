@@ -1,8 +1,8 @@
-const { Order, Inventory } = require('../models');
+const { Order, Inventory, NeededItem } = require('../models');
 const { getNextSequence } = require('../utils/counter');
 const { canTransition, getInitialState } = require('../utils/stateMachine');
 
-// Create new order with robust inventory management
+// Create new order with new workflow
 const createOrder = async (req, res) => {
   try {
     const { type, customerOrSupplier, vehicle, products } = req.body;
@@ -11,13 +11,10 @@ const createOrder = async (req, res) => {
     // Generate order number
     const orderNumber = await getNextSequence('orders');
 
-    // Get initial state based on order type
-    const initialStatus = getInitialState(type);
-
     // Validate and process products
     const processedProducts = [];
-    let isOrderBlocked = false;
-    const blockedReasons = [];
+    const neededItems = [];
+    let canDispatch = true;
 
     for (const product of products) {
       // Require inventoryItemId for all orders
@@ -44,9 +41,9 @@ const createOrder = async (req, res) => {
 
       const processedProduct = {
         inventoryItemId: inventoryItem._id,
-        name: inventoryItem.name, // Use name from inventory item
-        dimensions: inventoryItem.dimensions,
-        length: product.length || '',
+        dimensionId: product.dimensionId || null,
+        name: inventoryItem.name,
+        dimensions: product.dimensions || '',
         quantity: product.quantity,
         quantityFulfilled: 0,
         quantityPending: product.quantity,
@@ -55,45 +52,46 @@ const createOrder = async (req, res) => {
 
       if (type === 'dispatch') {
         // Check stock availability for dispatch orders
-        if (inventoryItem.availableQuantity < product.quantity) {
-          // Insufficient stock - partially fulfill or block
-          if (inventoryItem.availableQuantity > 0) {
-            // Partial fulfillment
-            processedProduct.quantityFulfilled = inventoryItem.availableQuantity;
-            processedProduct.quantityPending = product.quantity - inventoryItem.availableQuantity;
-            
-            // Reserve available quantity
-            inventoryItem.reserveQuantity(inventoryItem.availableQuantity);
-            inventoryItem.lastUpdatedBy = req.user._id;
-            await inventoryItem.save();
-            
-            isOrderBlocked = true;
-            blockedReasons.push(`${product.name} - Partial stock (${inventoryItem.availableQuantity}/${product.quantity})`);
-          } else {
-            // No stock available - full block
-            isOrderBlocked = true;
-            blockedReasons.push(`${product.name} - Out of stock`);
-          }
-          
-
-          
+        let availableQuantity = 0;
+        
+        if (inventoryItem.type === 'finished_product' && inventoryItem.dimensions && inventoryItem.dimensions.length > 0 && product.dimensionId) {
+          // For finished products with dimensions, check specific dimension availability
+          const dimension = inventoryItem.dimensions.id(product.dimensionId);
+          availableQuantity = dimension ? dimension.availableQuantity : 0;
         } else {
-          // Sufficient stock available
-          processedProduct.quantityFulfilled = product.quantity;
-          processedProduct.quantityPending = 0;
-          
-          // Reserve inventory
-          inventoryItem.reserveQuantity(product.quantity);
-          inventoryItem.lastUpdatedBy = req.user._id;
-          await inventoryItem.save();
+          // For raw materials and simple inventory
+          availableQuantity = inventoryItem.availableQuantity || 0;
         }
-      } else if (type === 'purchase') {
-        // For purchase orders, we're adding inventory
-        processedProduct.quantityFulfilled = product.quantity;
-        processedProduct.quantityPending = 0;
+        
+        if (availableQuantity < product.quantity) {
+          canDispatch = false;
+          const shortfall = product.quantity - availableQuantity;
+          
+          neededItems.push({
+            productName: inventoryItem.name,
+            dimensions: product.dimensions || '',
+            quantityNeeded: shortfall,
+            inventoryItemId: inventoryItem._id,
+            dimensionId: product.dimensionId
+          });
+        }
       }
 
       processedProducts.push(processedProduct);
+    }
+
+    // Determine initial status based on order type and workflow
+    let initialStatus;
+    if (type === 'dispatch') {
+      initialStatus = 'draft'; // Start as draft, will move to pending_dispatch_approval when dispatch button clicked
+    } else {
+      // Purchase orders need vehicle info from the start
+      if (!vehicle || !vehicle.number || !vehicle.driverName || !vehicle.driverNumber) {
+        return res.status(400).json({ 
+          message: 'Vehicle information is required for purchase orders.' 
+        });
+      }
+      initialStatus = 'pending_guard_approval';
     }
 
     // Create order
@@ -102,39 +100,43 @@ const createOrder = async (req, res) => {
       type,
       status: initialStatus,
       customerOrSupplier,
-      vehicle,
+      vehicle: type === 'purchase' ? vehicle : undefined, // Only set vehicle for purchase orders initially
       products: processedProducts,
+      neededItems,
+      canDispatch,
       createdBy: req.user._id,
-      isBlocked: isOrderBlocked,
-      blockedReason: isOrderBlocked ? blockedReasons.join('; ') : null,
-      blockedAt: isOrderBlocked ? new Date() : null,
-      blockedBy: isOrderBlocked ? req.user._id : null,
       history: [{
         by: req.user._id,
         from: null,
         to: initialStatus,
-        note: isOrderBlocked ? `Order created (BLOCKED: ${blockedReasons.join('; ')})` : 'Order created',
+        note: type === 'dispatch' 
+          ? (canDispatch ? 'Order created - ready for dispatch' : 'Order created - items needed before dispatch')
+          : 'Purchase order created',
         at: new Date()
       }]
     });
 
     await order.save();
 
-    // Add blocked orders to inventory items
-    if (isOrderBlocked && type === 'dispatch') {
-      for (const product of processedProducts) {
-        if (product.inventoryItemId && product.quantityPending > 0) {
-          const inventoryItem = await Inventory.findById(product.inventoryItemId);
-          if (inventoryItem) {
-            inventoryItem.blockedOrders.push({
-              orderId: order._id,
-              quantityNeeded: product.quantityPending,
-              dateBlocked: new Date()
-            });
-            await inventoryItem.save();
-          }
-        }
-      }
+    // Create NeededItem records for any shortfalls
+    if (neededItems.length > 0) {
+      const neededItemRecords = neededItems.map(item => ({
+        productName: item.productName,
+        dimensions: item.dimensions,
+        quantityNeeded: item.quantityNeeded,
+        bundlesNeeded: Math.ceil(item.quantityNeeded / 1), // Assuming 1 unit per bundle for now
+        inventoryItemId: item.inventoryItemId,
+        dimensionId: item.dimensionId,
+        orderReference: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          customerOrSupplier: order.customerOrSupplier
+        },
+        priority: 'medium',
+        createdBy: req.user._id
+      }));
+
+      await NeededItem.insertMany(neededItemRecords);
     }
 
     // Populate created order for response
@@ -142,10 +144,10 @@ const createOrder = async (req, res) => {
     await order.populate('products.inventoryItemId', 'name sku availableQuantity');
 
     res.status(201).json({
-      message: isOrderBlocked ? 'Order created but blocked due to insufficient inventory' : 'Order created successfully',
+      message: 'Order created successfully',
       order,
-      blocked: isOrderBlocked,
-      blockedReasons: isOrderBlocked ? blockedReasons : null
+      canDispatch,
+      neededItems: neededItems.length > 0 ? neededItems : null
     });
 
   } catch (error) {
@@ -461,10 +463,30 @@ const getOrders = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Add needed items information to each order
+    const ordersWithNeededItems = await Promise.all(
+      orders.map(async (order) => {
+        const neededItems = await NeededItem.find({
+          'orderReference.orderId': order._id,
+          status: { $in: ['pending', 'partially_fulfilled'] }
+        });
+
+        return {
+          ...order.toObject(),
+          neededItems: neededItems.map(item => ({
+            productName: item.productName,
+            dimensions: item.dimensions,
+            quantityNeeded: item.quantityNeeded - item.quantityFulfilled,
+            bundlesNeeded: item.bundlesNeeded - item.bundlesFulfilled
+          }))
+        };
+      })
+    );
+
     const total = await Order.countDocuments(filter);
 
     res.json({
-      orders,
+      orders: ordersWithNeededItems,
       pagination: {
         total,
         page: parseInt(page),
@@ -494,7 +516,23 @@ const getOrderById = async (req, res) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
-    res.json(order);
+    // Add needed items information
+    const neededItems = await NeededItem.find({
+      'orderReference.orderId': order._id,
+      status: { $in: ['pending', 'partially_fulfilled'] }
+    });
+
+    const orderWithNeededItems = {
+      ...order.toObject(),
+      neededItems: neededItems.map(item => ({
+        productName: item.productName,
+        dimensions: item.dimensions,
+        quantityNeeded: item.quantityNeeded - item.quantityFulfilled,
+        bundlesNeeded: item.bundlesNeeded - item.bundlesFulfilled
+      }))
+    };
+
+    res.json({ order: orderWithNeededItems });
 
   } catch (error) {
     console.error('Get order by ID error:', error);
@@ -514,7 +552,7 @@ const updateOrderStatus = async (req, res) => {
     }
 
     // Check if transition is valid
-    if (!canTransition(order.status, status)) {
+    if (!canTransition(order.type, order.status, status)) {
       return res.status(400).json({ 
         message: `Invalid status transition from ${order.status} to ${status}` 
       });
@@ -546,6 +584,185 @@ const updateOrderStatus = async (req, res) => {
   } catch (error) {
     console.error('Update order status error:', error);
     res.status(500).json({ message: 'Server error updating order status' });
+  }
+};
+
+// Approve dispatch order (when dispatch button is clicked)
+const approveDispatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { vehicle } = req.body;
+
+    const order = await Order.findById(id).populate('products.inventoryItemId');
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (order.type !== 'dispatch') {
+      return res.status(400).json({ message: 'This action is only for dispatch orders' });
+    }
+
+    if (order.status !== 'draft') {
+      return res.status(400).json({ message: 'Order is not in draft status' });
+    }
+
+    // Check if there are any pending needed items for this order
+    const pendingNeededItems = await NeededItem.find({
+      'orderReference.orderId': order._id,
+      status: { $in: ['pending', 'partially_fulfilled'] }
+    });
+
+    if (pendingNeededItems.length > 0) {
+      return res.status(400).json({
+        message: 'Cannot dispatch - items still needed',
+        neededItems: pendingNeededItems.map(item => ({
+          productName: item.productName,
+          dimensions: item.dimensions,
+          quantityNeeded: item.quantityNeeded - item.quantityFulfilled,
+          bundlesNeeded: item.bundlesNeeded
+        })),
+        order
+      });
+    }
+
+    // Validate vehicle information
+    if (!vehicle || !vehicle.number || !vehicle.driverName || !vehicle.driverNumber) {
+      return res.status(400).json({ 
+        message: 'Vehicle information is required for dispatch approval.' 
+      });
+    }
+
+    // Re-check availability and reserve inventory
+    let canDispatch = true;
+    const blockedReasons = [];
+
+    for (const product of order.products) {
+      const inventoryItem = await Inventory.findById(product.inventoryItemId);
+      if (!inventoryItem) {
+        return res.status(400).json({ 
+          message: `Inventory item not found for product: ${product.name}` 
+        });
+      }
+
+      let availableQuantity = 0;
+      
+      if (inventoryItem.type === 'finished_product' && inventoryItem.dimensions && inventoryItem.dimensions.length > 0 && product.dimensionId) {
+        // For finished products with dimensions, check specific dimension availability
+        const dimension = inventoryItem.dimensions.id(product.dimensionId);
+        availableQuantity = dimension ? dimension.availableQuantity : 0;
+      } else {
+        // For raw materials and simple inventory
+        availableQuantity = inventoryItem.availableQuantity || 0;
+      }
+
+      if (availableQuantity < product.quantity) {
+        canDispatch = false;
+        const shortfall = product.quantity - availableQuantity;
+        
+        // Create needed item automatically
+        const neededItemData = {
+          productName: inventoryItem.name,
+          dimensions: product.dimensions || '',
+          quantityNeeded: shortfall,
+          bundlesNeeded: Math.ceil(shortfall / (inventoryItem.bundleSize || 1)),
+          inventoryItemId: inventoryItem._id,
+          dimensionId: product.dimensionId,
+          orderReference: {
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            customerOrSupplier: order.customerOrSupplier
+          },
+          priority: order.priority || 'medium',
+          createdBy: req.user._id
+        };
+
+        await NeededItem.create(neededItemData);
+        
+        blockedReasons.push(`${product.name} - Need ${shortfall} more (${availableQuantity}/${product.quantity} available)`);
+      } else {
+        // Reserve inventory
+        if (inventoryItem.type === 'finished_product' && inventoryItem.dimensions && inventoryItem.dimensions.length > 0 && product.dimensionId) {
+          // Handle finished products with dimensions
+          const dimension = inventoryItem.dimensions.id(product.dimensionId);
+          if (dimension && dimension.availableQuantity >= product.quantity) {
+            dimension.reservedQuantity += product.quantity;
+            dimension.availableQuantity = dimension.quantity - dimension.reservedQuantity;
+          } else {
+            canDispatch = false;
+            blockedReasons.push(`${product.name} - Insufficient stock in dimension ${product.dimensions}`);
+          }
+        } else {
+          // Handle raw materials and simple inventory
+          inventoryItem.reservedQuantity += product.quantity;
+          inventoryItem.availableQuantity = inventoryItem.quantity - inventoryItem.reservedQuantity;
+        }
+        
+        inventoryItem.lastUpdatedBy = req.user._id;
+        await inventoryItem.save();
+      }
+    }
+
+    if (!canDispatch) {
+      // Update order status
+      order.canDispatch = false;
+      order.isBlocked = true;
+      order.blockedReason = blockedReasons.join('; ');
+      order.blockedAt = new Date();
+      order.blockedBy = req.user._id;
+
+      order.history.push({
+        by: req.user._id,
+        from: order.status,
+        to: order.status,
+        note: `Dispatch blocked - insufficient inventory: ${blockedReasons.join('; ')}`,
+        at: new Date()
+      });
+
+      await order.save();
+
+      // Get the created needed items for response
+      const createdNeededItems = await NeededItem.find({
+        'orderReference.orderId': order._id,
+        status: { $in: ['pending', 'partially_fulfilled'] }
+      });
+
+      return res.status(400).json({
+        message: 'Cannot dispatch - insufficient inventory. Needed items have been created.',
+        neededItems: createdNeededItems.map(item => ({
+          productName: item.productName,
+          dimensions: item.dimensions,
+          quantityNeeded: item.quantityNeeded,
+          bundlesNeeded: item.bundlesNeeded
+        })),
+        order
+      });
+    }
+
+    // Update order with vehicle info and change status
+    order.vehicle = vehicle;
+    order.status = 'pending_guard_approval';
+    order.canDispatch = true;
+    order.isBlocked = false;
+    order.blockedReason = null;
+
+    order.history.push({
+      by: req.user._id,
+      from: 'draft',
+      to: 'pending_guard_approval',
+      note: 'Dispatch approved - inventory reserved, vehicle assigned',
+      at: new Date()
+    });
+
+    await order.save();
+
+    res.json({
+      message: 'Dispatch approved successfully',
+      order
+    });
+
+  } catch (error) {
+    console.error('Approve dispatch error:', error);
+    res.status(500).json({ message: 'Server error approving dispatch' });
   }
 };
 
@@ -1073,6 +1290,7 @@ const exitOrder = async (req, res) => {
 
 module.exports = {
   createOrder,
+  approveDispatch,
   getOrders,
   getOrdersByStatus,
   getBlockedOrders,
@@ -1084,7 +1302,7 @@ module.exports = {
   readyForLoading,
   readyForUnloading,
   acceptLoading,
-   acceptUnloading,
+  acceptUnloading,
   loadingComplete,
   unloadingComplete,
   recordFinalWeight,

@@ -39,17 +39,13 @@ const OrderCard: React.FC<OrderCardProps> = ({
   const getAvailableActions = (status: string, orderType: string) => {
     const actions: Array<{ label: string; action: string; variant: string }> = [];
 
-    // If order is blocked, no actions should be available
-    if (order.isBlocked) {
-      return actions;
-    }
-
     // Role-based action visibility
     const canApproveEntry = hasRole(['Guard', 'Director']);
     const canRecordWeight = hasRole(['Weighbridge', 'Director']);
     const canManageLoading = hasRole(['Loading', 'Director']);
     const canManageUnloading = hasRole(['Unloading', 'Director']);
     const canGenerateInvoice = hasRole(['Accounting', 'Director']);
+    const canCreateOrder = hasRole(['Store_Keeper', 'Purchasing', 'General_Manager', 'Director']);
     const canSignalReady =
       hasRole(['Weighbridge', 'General_Manager', 'Director']) ||
       (orderType === 'dispatch' && hasRole(['Loading'])) ||
@@ -62,6 +58,20 @@ const OrderCard: React.FC<OrderCardProps> = ({
     const isUnloadingAccepted = order.history.some((h) => h.note === 'Unloading accepted by supervisor');
 
     switch (status) {
+      case 'draft':
+        if (canCreateOrder && orderType === 'dispatch') {
+          // Only show Dispatch button if items are available or no needed items exist
+          const hasNeededItems = order.neededItems && order.neededItems.length > 0;
+          if (!hasNeededItems && order.canDispatch !== false) {
+            actions.push({ label: 'Dispatch', action: 'approve-dispatch', variant: 'success' });
+          }
+        }
+        break;
+      case 'pending_dispatch_approval':
+        if (canCreateOrder && orderType === 'dispatch') {
+          actions.push({ label: 'Approve Dispatch', action: 'approve-dispatch', variant: 'success' });
+        }
+        break;
       case 'pending_guard_approval':
         if (canApproveEntry) {
           actions.push({ label: 'Approve Entry', action: 'guard-approve', variant: 'success' });
@@ -195,6 +205,51 @@ const OrderCard: React.FC<OrderCardProps> = ({
                   Priority: {order.priority}
                 </Badge>
               )}
+            </div>
+          )}
+
+          {/* Needed Items for Dispatch Orders */}
+          {order.type === 'dispatch' && order.neededItems && order.neededItems.length > 0 && (
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                <span className="text-yellow-800 font-medium text-sm">Items Needed Before Dispatch</span>
+              </div>
+              <div className="space-y-1">
+                {order.neededItems.map((item, index) => (
+                  <div key={index} className="text-yellow-700 text-sm">
+                    • {item.productName} {item.dimensions && `(${item.dimensions})`}: {item.quantityNeeded} units needed
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Dispatch Status Indicator */}
+          {order.type === 'dispatch' && order.status === 'draft' && (
+            <div className={`p-3 border rounded-lg ${
+              order.canDispatch 
+                ? 'bg-green-50 border-green-200' 
+                : 'bg-blue-50 border-blue-200'
+            }`}>
+              <div className="flex items-center space-x-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  order.canDispatch ? 'bg-green-500' : 'bg-blue-500'
+                }`}></div>
+                <span className={`font-medium text-sm ${
+                  order.canDispatch ? 'text-green-800' : 'text-blue-800'
+                }`}>
+                  {order.canDispatch ? 'Ready for Dispatch' : 'Dispatch Order'}
+                </span>
+              </div>
+              <p className={`text-sm mt-1 ${
+                order.canDispatch ? 'text-green-700' : 'text-blue-700'
+              }`}>
+                {order.canDispatch 
+                  ? 'All items are available in stock. Click "Dispatch" to proceed.'
+                  : 'Click "Dispatch" to check availability and assign vehicle.'
+                }
+              </p>
             </div>
           )}
 

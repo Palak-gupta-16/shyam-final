@@ -1,26 +1,34 @@
 // State machine definitions for order lifecycle
+const COMMON_STATES = {
+  DRAFT: 'draft',
+  PENDING_DISPATCH_APPROVAL: 'pending_dispatch_approval',
+  COMPLETED: 'completed'
+};
+
 const DISPATCH_STATES = {
+  ...COMMON_STATES,
   PENDING_GUARD_APPROVAL: 'pending_guard_approval',
   INSIDE_FACTORY_PENDING_EMPTY_WEIGHT: 'inside_factory_pending_empty_weight',
   INSIDE_FACTORY_PENDING_LOADING: 'inside_factory_pending_loading',
   INSIDE_FACTORY_PENDING_FINAL_WEIGHT: 'inside_factory_pending_final_weight',
   READY_FOR_BILLING: 'ready_for_billing',
-  READY_FOR_DISPATCH: 'ready_for_dispatch',
-  COMPLETED: 'completed'
+  READY_FOR_DISPATCH: 'ready_for_dispatch'
 };
 
 const PURCHASE_STATES = {
+  ...COMMON_STATES,
   PENDING_GUARD_APPROVAL: 'pending_guard_approval',
   INSIDE_FACTORY_PENDING_EMPTY_WEIGHT_PURCHASE: 'inside_factory_pending_empty_weight_purchase',
   INSIDE_FACTORY_PENDING_UNLOADING: 'inside_factory_pending_unloading',
   INSIDE_FACTORY_PENDING_FINAL_WEIGHT_PURCHASE: 'inside_factory_pending_final_weight_purchase',
   READY_FOR_BILLING_PURCHASE: 'ready_for_billing_purchase',
-  READY_FOR_EXIT_PURCHASE: 'ready_for_exit_purchase',
-  COMPLETED: 'completed'
+  READY_FOR_EXIT_PURCHASE: 'ready_for_exit_purchase'
 };
 
 // Valid state transitions for dispatch orders
 const DISPATCH_TRANSITIONS = {
+  [DISPATCH_STATES.DRAFT]: [DISPATCH_STATES.PENDING_DISPATCH_APPROVAL, DISPATCH_STATES.PENDING_GUARD_APPROVAL],
+  [DISPATCH_STATES.PENDING_DISPATCH_APPROVAL]: [DISPATCH_STATES.PENDING_GUARD_APPROVAL],
   [DISPATCH_STATES.PENDING_GUARD_APPROVAL]: [DISPATCH_STATES.INSIDE_FACTORY_PENDING_EMPTY_WEIGHT],
   [DISPATCH_STATES.INSIDE_FACTORY_PENDING_EMPTY_WEIGHT]: [DISPATCH_STATES.INSIDE_FACTORY_PENDING_LOADING],
   [DISPATCH_STATES.INSIDE_FACTORY_PENDING_LOADING]: [DISPATCH_STATES.INSIDE_FACTORY_PENDING_FINAL_WEIGHT],
@@ -54,7 +62,7 @@ const canTransition = (orderType, fromState, toState) => {
 
 // Get initial state for order type
 const getInitialState = (orderType) => {
-  return orderType === 'dispatch' ? DISPATCH_STATES.PENDING_GUARD_APPROVAL : PURCHASE_STATES.PENDING_GUARD_APPROVAL;
+  return orderType === 'dispatch' ? DISPATCH_STATES.DRAFT : PURCHASE_STATES.PENDING_GUARD_APPROVAL;
 };
 
 // Get all valid states for order type
@@ -69,6 +77,7 @@ const getNextStates = (orderType, currentState) => {
 };
 
 module.exports = {
+  COMMON_STATES,
   DISPATCH_STATES,
   PURCHASE_STATES,
   DISPATCH_TRANSITIONS,

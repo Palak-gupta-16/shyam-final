@@ -23,17 +23,28 @@ export type UserRole =
   | 'Purchasing';
 
 // Order types
+export interface NeededItem {
+  productName: string;
+  dimensions?: string;
+  quantityNeeded: number;
+  inventoryItemId?: string;
+  addedAt: string;
+}
+
 export interface Order {
   _id: string;
   orderNumber: number;
   type: 'dispatch' | 'purchase';
   status: OrderStatus;
   customerOrSupplier: string;
-  vehicle: {
-    number: string;
-    driverName: string;
+  vehicle?: {
+    number?: string;
+    driverName?: string;
+    driverNumber?: string;
   };
   products: Product[];
+  neededItems?: NeededItem[];
+  canDispatch?: boolean;
   weights?: {
     emptyWeight?: number;
     finalWeight?: number;
@@ -83,6 +94,8 @@ export interface Order {
 }
 
 export type OrderStatus = 
+  | 'draft'
+  | 'pending_dispatch_approval'
   | 'pending_guard_approval'
   | 'inside_factory_pending_empty_weight'
   | 'inside_factory_pending_loading'
@@ -99,15 +112,17 @@ export type OrderStatus =
 
 export interface Product {
   inventoryItemId?: string;
+  dimensionId?: string;
   name: string;
   dimensions?: string;
-  length?: string;
   quantity: number;
   quantityFulfilled?: number;
   quantityPending?: number;
   weightPerBundle?: number;
   grade?: string;
   unit?: string;
+  availableDimensions?: InventoryDimension[];
+  selectedDimensionStock?: number;
 }
 
 export interface ProductLoad {

@@ -18,6 +18,8 @@ import OrderCard from '../components/orders/OrderCard';
 import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
 import InventoryDropdown from '../components/common/InventoryDropdown';
+import ProductDropdown from '../components/common/ProductDropdown';
+import DimensionDropdown from '../components/common/DimensionDropdown';
 import FareModal from '../components/fares/FareModal';
 import InvoiceModal from '../components/invoices/InvoiceModal';
 import { ordersAPI, fareAPI } from '../services/api';
@@ -84,6 +86,10 @@ const Orders: React.FC = () => {
       } else if (action === 'move-to-gate') {
         // Handle move to gate - this should mark the order as ready for exit
         handleMoveToGate(order);
+      } else if (action === 'approve-dispatch') {
+        // Handle dispatch approval - need vehicle info
+        setActionType('approve-dispatch');
+        setShowActionModal(true);
       } else {
         setActionType(action);
         setShowActionModal(true);
@@ -96,6 +102,9 @@ const Orders: React.FC = () => {
 
     try {
      switch (actionType) {
+      case 'approve-dispatch':
+        await ordersAPI.approveDispatch(selectedOrder._id, actionData.vehicle);
+        break;
       case 'guard-approve':
         await ordersAPI.guardApprove(selectedOrder._id);
         break;
@@ -339,7 +348,9 @@ const Orders: React.FC = () => {
                   className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Status</option>
-                  <option value="pending_guard_approval">Pending Approval</option>
+                  <option value="draft">Draft</option>
+                  <option value="pending_dispatch_approval">Pending Dispatch Approval</option>
+                  <option value="pending_guard_approval">Pending Guard Approval</option>
                   <option value="inside_factory_pending_empty_weight">Pending Empty Weight</option>
                   <option value="inside_factory_pending_loading">Pending Loading</option>
                   <option value="ready_for_billing">Ready for Billing</option>
@@ -571,14 +582,32 @@ const CreateOrderModal: React.FC<{
       driverName: '',
       driverNumber: '',
     },
-    products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
+    products: [{ 
+      inventoryItemId: '', 
+      name: '', 
+      dimensions: '', 
+      dimensionId: '', 
+      quantity: 0, 
+      unit: '', 
+      availableDimensions: [], 
+      selectedDimensionStock: 0 
+    }],
   });
   const [loading, setLoading] = useState(false);
 
   const addProduct = () => {
     setFormData((prev) => ({
       ...prev,
-      products: [...prev.products, { inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
+      products: [...prev.products, { 
+        inventoryItemId: '', 
+        name: '', 
+        dimensions: '', 
+        dimensionId: '', 
+        quantity: 0, 
+        unit: '', 
+        availableDimensions: [], 
+        selectedDimensionStock: 0 
+      }],
     }));
   };
 
@@ -622,23 +651,36 @@ const CreateOrderModal: React.FC<{
         return;
       }
       
-      const processedData = {
+      const processedData: any = {
         type: formData.type,
         customerOrSupplier: formData.customerOrSupplier,
-        vehicle: {
+        products: validProducts,
+      };
+
+      // Only include vehicle data for purchase orders
+      if (formData.type === 'purchase') {
+        processedData.vehicle = {
           number: formData.vehicle.number,
           driverName: formData.vehicle.driverName,
           driverNumber: formData.vehicle.driverNumber,
-        },
-        products: validProducts,
-      };
+        };
+      }
       await ordersAPI.createOrder(processedData);
       onSuccess();
       setFormData({
         type: 'dispatch',
         customerOrSupplier: '',
         vehicle: { number: '', driverName: '', driverNumber: '' },
-        products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
+        products: [{ 
+          inventoryItemId: '', 
+          name: '', 
+          dimensions: '', 
+          dimensionId: '', 
+          quantity: 0, 
+          unit: '', 
+          availableDimensions: [], 
+          selectedDimensionStock: 0 
+        }],
       });
     } catch (error) {
       console.error('Error creating order:', error);
@@ -649,7 +691,7 @@ const CreateOrderModal: React.FC<{
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create New Order" size="4xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="Create New Order" size="6xl">
   <div className="flex flex-col max-h-[80vh]">
     {/* Scrollable content */}
     <div className="overflow-y-auto pr-2 space-y-6 flex-1">
@@ -693,57 +735,71 @@ const CreateOrderModal: React.FC<{
 
         {/* Customer/Supplier Details */}
         <Input
-          label={formData.type === 'dispatch' ? 'Customer Name' : 'Supplier Name'}
+          label={formData.type === 'dispatch' ? 'Customer Name *' : 'Supplier Name *'}
           value={formData.customerOrSupplier}
           onChange={(e) =>
             setFormData((prev) => ({ ...prev, customerOrSupplier: e.target.value }))
           }
           required
-          placeholder="Enter name"
+          placeholder={formData.type === 'dispatch' ? 'Enter customer name' : 'Enter supplier name'}
         />
 
-        {/* Vehicle Information */}
-        <div className="grid grid-cols-3 gap-4">
-          <Input
-            label="Vehicle Number"
-            value={formData.vehicle.number}
-            onChange={(e) =>
-              setFormData((prev) => ({
-                ...prev,
-                vehicle: { ...prev.vehicle, number: e.target.value },
-              }))
-            }
-            required
-            placeholder="e.g., GJ01AB1234"
-          />
-          <Input
-            label="Driver Name"
-            value={formData.vehicle.driverName}
-            onChange={(e) =>
-              setFormData((prev) => ({
-                ...prev,
-                vehicle: { ...prev.vehicle, driverName: e.target.value },
-              }))
-            }
-            required
-            placeholder="Enter driver name"
-          />
-          <Input
-            label="Driver Phone Number"
-            value={formData.vehicle.driverNumber}
-            onChange={(e) =>
-              setFormData((prev) => ({
-                ...prev,
-                vehicle: { ...prev.vehicle, driverNumber: e.target.value },
-              }))
-            }
-            required
-            type="tel"
-            pattern="[0-9]{10}"
-            title="Please enter a valid 10-digit phone number"
-            placeholder="e.g., 9876543210"
-          />
-        </div>
+        {/* Vehicle Information - Only required for purchase orders initially */}
+        {formData.type === 'purchase' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">Vehicle Information</label>
+            <div className="grid grid-cols-3 gap-4">
+              <Input
+                label="Vehicle Number *"
+                value={formData.vehicle.number}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    vehicle: { ...prev.vehicle, number: e.target.value },
+                  }))
+                }
+                required
+                placeholder="e.g., GJ01AB1234"
+              />
+              <Input
+                label="Driver Name *"
+                value={formData.vehicle.driverName}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    vehicle: { ...prev.vehicle, driverName: e.target.value },
+                  }))
+                }
+                required
+                placeholder="Enter driver name"
+              />
+              <Input
+                label="Driver Phone Number *"
+                value={formData.vehicle.driverNumber}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    vehicle: { ...prev.vehicle, driverNumber: e.target.value },
+                  }))
+                }
+                required
+                type="tel"
+                pattern="[0-9]{10}"
+                title="Please enter a valid 10-digit phone number"
+                placeholder="e.g., 9876543210"
+              />
+            </div>
+          </div>
+        )}
+
+        {formData.type === 'dispatch' && (
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <strong>Note:</strong> For dispatch orders, you only need to provide product details initially. 
+              Vehicle information will be required when you click the "Dispatch" button after checking availability.
+            </p>
+          </div>
+        )}
 
         {/* Products */}
         <div>
@@ -757,79 +813,202 @@ const CreateOrderModal: React.FC<{
             {formData.products.map((product, index) => (
               <div
                 key={index}
-                className="grid grid-cols-12 gap-4 items-end p-4 border rounded-lg"
+                className="p-4 border rounded-lg space-y-4"
               >
-                <div className="col-span-4">
-                  <InventoryDropdown
-                    type={
-                      formData.type === 'dispatch'
-                        ? 'finished_product'
-                        : 'raw_material'
-                    }
-                    value={product.inventoryItemId || null}
-                    onChange={(item) => {
-                      if (item) {
-                        updateProduct(index, 'inventoryItemId', item._id);
-                        updateProduct(index, 'name', item.name);
-                        updateProduct(index, 'dimensions', item.dimensions || '');
-                        updateProduct(index, 'length', item.length || '');
-                      } else {
-                        updateProduct(index, 'inventoryItemId', '');
-                        updateProduct(index, 'name', '');
-                        updateProduct(index, 'dimensions', '');
-                        updateProduct(index, 'length', '');
-                      }
-                    }}
-                    placeholder="Select material... *"
-                    showStock={true}
-                    required={true}
-                  />
-                </div>
-                <div className="col-span-3">
-                  <Input
-                    placeholder="Dimensions"
-                    value={product.dimensions}
-                    onChange={(e) =>
-                      updateProduct(index, 'dimensions', e.target.value)
-                    }
-                    disabled
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Input
-                    placeholder="Length"
-                    value={product.length}
-                    onChange={(e) =>
-                      updateProduct(index, 'length', e.target.value)
-                    }
-                    disabled
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Input
-                    type="number"
-                    placeholder="Quantity"
-                    min="0"
-                    step="1"
-                    value={product.quantity}
-                    onChange={(e) =>
-                      updateProduct(index, 'quantity', Number(e.target.value))
-                    }
-                    required
-                  />
-                </div>
-                <div className="col-span-1">
-                  {formData.products.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      onClick={() => removeProduct(index)}
-                    >
-                      ×
-                    </Button>
-                  )}
-                </div>
+                {/* Wide Layout for Dispatch Orders */}
+                {formData.type === 'dispatch' ? (
+                  <div className="grid grid-cols-10 gap-6 items-end">
+                    {/* Product Selection - Wider */}
+                    <div className="col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Select Product *
+                      </label>
+                      <ProductDropdown
+                        type="finished_product"
+                        value={product.inventoryItemId || null}
+                        onChange={(item: any) => {
+                          if (item) {
+                            updateProduct(index, 'inventoryItemId', item._id);
+                            updateProduct(index, 'name', item.name);
+                            updateProduct(index, 'unit', item.unit);
+                            // Reset dimension selection when product changes
+                            updateProduct(index, 'dimensionId', '');
+                            updateProduct(index, 'dimensions', '');
+                            updateProduct(index, 'availableDimensions', item.dimensions || []);
+                          } else {
+                            updateProduct(index, 'inventoryItemId', '');
+                            updateProduct(index, 'name', '');
+                            updateProduct(index, 'unit', '');
+                            updateProduct(index, 'dimensionId', '');
+                            updateProduct(index, 'dimensions', '');
+                            updateProduct(index, 'availableDimensions', []);
+                          }
+                        }}
+                        placeholder="Select product..."
+                        showStock={false} // Don't show stock in product selection
+                        availableOnly={false} // Show all products regardless of availability
+                        required={true}
+                      />
+                    </div>
+
+                    {/* Dimension Dropdown with Custom Input - Much Wider */}
+                    <div className="col-span-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Dimension (Select or Enter Custom)
+                      </label>
+                      <DimensionDropdown
+                        availableDimensions={product.availableDimensions || []}
+                        value={product.dimensionId || null}
+                        customValue={product.dimensions || ''}
+                        onChange={(dimension: any) => {
+                          if (dimension) {
+                            updateProduct(index, 'dimensionId', dimension._id);
+                            updateProduct(index, 'dimensions', dimension.dimension);
+                            updateProduct(index, 'selectedDimensionStock', dimension.availableQuantity);
+                          } else {
+                            updateProduct(index, 'dimensionId', '');
+                            updateProduct(index, 'selectedDimensionStock', 0);
+                          }
+                        }}
+                        onCustomChange={(customDimension: string) => {
+                          updateProduct(index, 'dimensions', customDimension);
+                          // Clear dimension selection if custom dimension is entered
+                          if (customDimension && product.dimensionId) {
+                            updateProduct(index, 'dimensionId', '');
+                            updateProduct(index, 'selectedDimensionStock', 0);
+                          }
+                        }}
+                        placeholder="Select dimension or enter custom..."
+                        showStock={true}
+                      />
+                    </div>
+
+                    {/* Quantity */}
+                    <div className="col-span-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Quantity *
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="Qty"
+                        min="0"
+                        step="1"
+                        value={product.quantity}
+                        onChange={(e) =>
+                          updateProduct(index, 'quantity', Number(e.target.value))
+                        }
+                        required
+                      />
+                    </div>
+
+                    {/* Stock Info */}
+                    <div className="col-span-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Stock
+                      </label>
+                      <Input
+                        placeholder="Stock"
+                        value={
+                          product.dimensionId 
+                            ? `${product.selectedDimensionStock || 0}`
+                            : product.inventoryItemId && product.availableDimensions?.length > 0
+                            ? `${product.availableDimensions.reduce((total: number, dim: any) => total + dim.availableQuantity, 0)}`
+                            : '0'
+                        }
+                        disabled
+                        className="bg-gray-50 text-sm text-center"
+                      />
+                    </div>
+
+                    {/* Remove Button */}
+                    <div className="col-span-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Action
+                      </label>
+                      {formData.products.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          onClick={() => removeProduct(index)}
+                          title="Remove product"
+                        >
+                          ×
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Purchase Order Layout - Simpler */
+                  <div className="grid grid-cols-12 gap-4 items-end">
+                    <div className="col-span-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Select Raw Material *
+                      </label>
+                      <ProductDropdown
+                        type="raw_material"
+                        value={product.inventoryItemId || null}
+                        onChange={(item: any) => {
+                          if (item) {
+                            updateProduct(index, 'inventoryItemId', item._id);
+                            updateProduct(index, 'name', item.name);
+                            updateProduct(index, 'unit', item.unit);
+                          } else {
+                            updateProduct(index, 'inventoryItemId', '');
+                            updateProduct(index, 'name', '');
+                            updateProduct(index, 'unit', '');
+                          }
+                        }}
+                        placeholder="Select raw material..."
+                        showStock={true}
+                        required={true}
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Quantity *
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="Enter qty"
+                        min="0"
+                        step="1"
+                        value={product.quantity}
+                        onChange={(e) =>
+                          updateProduct(index, 'quantity', Number(e.target.value))
+                        }
+                        required
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Unit
+                      </label>
+                      <Input
+                        placeholder="Unit"
+                        value={product.unit || ''}
+                        disabled
+                        className="bg-gray-50"
+                      />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Action
+                      </label>
+                      {formData.products.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          onClick={() => removeProduct(index)}
+                          title="Remove product"
+                        >
+                          ×
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -870,6 +1049,17 @@ const ActionModal: React.FC<{
     setLoading(true);
     
     let processedData = { ...formData };
+    
+    // Special processing for approve-dispatch action
+    if (actionType === 'approve-dispatch') {
+      processedData = {
+        vehicle: {
+          number: formData.vehicleNumber || '',
+          driverName: formData.driverName || '',
+          driverNumber: formData.driverNumber || ''
+        }
+      };
+    }
     
     // Special processing for complete-loading action
     if (actionType === 'complete-loading') {
@@ -922,6 +1112,57 @@ const ActionModal: React.FC<{
 
   const renderActionForm = () => {
     switch (actionType) {
+      case 'approve-dispatch':
+        return (
+          <div className="space-y-4">
+            <div className="bg-green-50 p-4 rounded-lg">
+              <h4 className="font-medium text-green-900">Approve Dispatch</h4>
+              <p className="text-sm text-green-700 mt-1">
+                Provide vehicle information to approve dispatch for Order #{order.orderNumber}
+              </p>
+              {order.neededItems && order.neededItems.length > 0 && (
+                <div className="mt-3 p-3 bg-yellow-100 rounded border">
+                  <p className="text-sm font-medium text-yellow-800 mb-2">Items Still Needed:</p>
+                  {order.neededItems.map((item, index) => (
+                    <div key={index} className="text-sm text-yellow-700">
+                      • {item.productName} {item.dimensions && `(${item.dimensions})`}: {item.quantityNeeded} units
+                    </div>
+                  ))}
+                  <p className="text-xs text-yellow-600 mt-2">
+                    Note: This dispatch will be blocked until these items are available.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              <Input
+                label="Vehicle Number *"
+                value={formData.vehicleNumber || ''}
+                onChange={(e) => setFormData((prev: any) => ({ ...prev, vehicleNumber: e.target.value }))}
+                required
+                placeholder="e.g., GJ01AB1234"
+              />
+              <Input
+                label="Driver Name *"
+                value={formData.driverName || ''}
+                onChange={(e) => setFormData((prev: any) => ({ ...prev, driverName: e.target.value }))}
+                required
+                placeholder="Enter driver name"
+              />
+              <Input
+                label="Driver Phone Number *"
+                value={formData.driverNumber || ''}
+                onChange={(e) => setFormData((prev: any) => ({ ...prev, driverNumber: e.target.value }))}
+                required
+                type="tel"
+                pattern="[0-9]{10}"
+                title="Please enter a valid 10-digit phone number"
+                placeholder="e.g., 9876543210"
+              />
+            </div>
+          </div>
+        );
+
       case 'guard-approve':
         return (
           <div className="space-y-4">

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronDown, Package, AlertTriangle, CheckCircle } from 'lucide-react';
-import { InventoryItem, InventoryDimension } from '../../types';
+import { InventoryItem } from '../../types';
 import { inventoryAPI } from '../../services/api';
 
-interface InventoryDropdownProps {
+interface ProductDropdownProps {
   type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
-  value: string | null; // This will be the item ID or dimension ID
-  onChange: (item: InventoryItem | null, dimension?: InventoryDimension | null) => void;
+  value: string | null; // This will be the item ID
+  onChange: (item: InventoryItem | null) => void;
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
@@ -15,11 +15,11 @@ interface InventoryDropdownProps {
   availableOnly?: boolean;
 }
 
-const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
+const ProductDropdown: React.FC<ProductDropdownProps> = ({
   type,
   value,
   onChange,
-  placeholder = 'Select item...',
+  placeholder = 'Select product...',
   required = false,
   disabled = false,
   className = '',
@@ -31,25 +31,10 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Find selected item and dimension by item ID or dimension ID
-  const selectedData = React.useMemo(() => {
+  // Find selected item by ID
+  const selectedItem = React.useMemo(() => {
     if (!value) return null;
-    
-    for (const item of items) {
-      // First check if value matches item ID
-      if (item._id === value) {
-        return { item, dimension: null };
-      }
-      
-      // For finished products, also check dimension IDs
-      if (item.type === 'finished_product' && item.dimensions) {
-        const dimension = item.dimensions.find(d => d._id === value);
-        if (dimension) {
-          return { item, dimension };
-        }
-      }
-    }
-    return null;
+    return items.find(item => item._id === value) || null;
   }, [items, value]);
 
   useEffect(() => {
@@ -69,40 +54,18 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
     }
   };
 
-  // Create flattened list of options for filtering
-  const itemOptions = React.useMemo(() => {
-    const options: Array<{ item: InventoryItem; dimension: InventoryDimension | null }> = [];
-    
-    items.forEach(item => {
-      if (item.type === 'finished_product' && item.dimensions) {
-        // For finished products, add each dimension as an option
-        item.dimensions.forEach(dimension => {
-          if (!availableOnly || dimension.availableQuantity > 0) {
-            options.push({ item, dimension });
-          }
-        });
-      } else {
-        // For raw materials and store items, add the item itself
-        if (!availableOnly || (item.availableQuantity || 0) > 0) {
-          options.push({ item, dimension: null });
-        }
-      }
-    });
-    
-    return options.filter(option =>
-      option.item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      option.item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (option.dimension && (
-        option.dimension.dimension.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        option.dimension.sku.toLowerCase().includes(searchTerm.toLowerCase())
-      ))
+  // Filter items based on search term
+  const filteredItems = React.useMemo(() => {
+    return items.filter(item =>
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.sku.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [items, searchTerm, availableOnly]);
+  }, [items, searchTerm]);
 
-  const getStockIcon = (item: InventoryItem, dimension: InventoryDimension | null) => {
-    const availableQty = dimension ? dimension.availableQuantity : (item.availableQuantity || 0);
-    const qty = dimension ? dimension.quantity : (item.quantity || 0);
-    const minStock = dimension ? dimension.minimumStock : (item.minimumStock || 0);
+  const getStockIcon = (item: InventoryItem) => {
+    const availableQty = item.availableQuantity || 0;
+    const qty = item.quantity || 0;
+    const minStock = item.minimumStock || 0;
     
     if (availableQty === 0) {
       return <AlertTriangle className="h-4 w-4 text-red-500" />;
@@ -113,26 +76,15 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
     return <CheckCircle className="h-4 w-4 text-green-500" />;
   };
 
-  const getStockText = (item: InventoryItem, dimension: InventoryDimension | null) => {
-    const availableQty = dimension ? dimension.availableQuantity : (item.availableQuantity || 0);
-    const reservedQty = dimension ? dimension.reservedQuantity : (item.reservedQuantity || 0);
-    const bundles = dimension ? dimension.bundles : (item.bundles || 0);
-    
-    return (
-      <div className="text-xs text-gray-500">
-        <div>Available: {availableQty} {item.unit}</div>
-        {reservedQty > 0 && (
-          <div>Reserved: {reservedQty} {item.unit}</div>
-        )}
-        {bundles > 0 && (
-          <div>Bundles: {bundles}</div>
-        )}
-      </div>
-    );
+  const getTotalStock = (item: InventoryItem) => {
+    if (item.type === 'finished_product' && item.dimensions) {
+      return item.dimensions.reduce((total, dim) => total + dim.availableQuantity, 0);
+    }
+    return item.availableQuantity || 0;
   };
 
-  const handleSelect = (item: InventoryItem, dimension: InventoryDimension | null) => {
-    onChange(item, dimension);
+  const handleSelect = (item: InventoryItem) => {
+    onChange(item);
     setIsOpen(false);
     setSearchTerm('');
   };
@@ -148,33 +100,27 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
           w-full px-3 py-2 text-left bg-white border rounded-lg shadow-sm
           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
           ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'hover:border-gray-400 cursor-pointer'}
-          ${selectedData ? 'border-gray-300' : 'border-gray-300'}
-          ${required && !selectedData ? 'border-red-300' : ''}
+          ${selectedItem ? 'border-gray-300' : 'border-gray-300'}
+          ${required && !selectedItem ? 'border-red-300' : ''}
         `}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
             <Package className="h-4 w-4 text-gray-400 flex-shrink-0" />
-            {selectedData ? (
+            {selectedItem ? (
               <div className="flex-1 min-w-0">
                 <div className="flex items-center space-x-2">
                   <span className="font-medium text-gray-900 truncate">
-                    {selectedData.item.name}
+                    {selectedItem.name}
                   </span>
-                  {showStock && getStockIcon(selectedData.item, selectedData.dimension)}
+                  {showStock && getStockIcon(selectedItem)}
                 </div>
                 <div className="text-sm text-gray-500 truncate">
-                  {selectedData.dimension 
-                    ? `${selectedData.dimension.sku} • ${selectedData.dimension.dimension}`
-                    : selectedData.item.sku
-                  }
+                  {selectedItem.sku}
                 </div>
                 {showStock && (
                   <div className="text-xs text-gray-400">
-                    Stock: {selectedData.dimension 
-                      ? selectedData.dimension.availableQuantity 
-                      : (selectedData.item.availableQuantity || 0)
-                    } {selectedData.item.unit}
+                    Total Stock: {getTotalStock(selectedItem)} {selectedItem.unit}
                   </div>
                 )}
               </div>
@@ -193,7 +139,7 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
           <div className="p-2 border-b border-gray-200">
             <input
               type="text"
-              placeholder="Search items..."
+              placeholder="Search products..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
@@ -201,61 +147,57 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
             />
           </div>
 
-          {/* Dimension Options List */}
+          {/* Product Options List */}
           <div className="overflow-y-auto max-h-64">
             {loading ? (
               <div className="px-4 py-8 text-center text-gray-500">
                 Loading...
               </div>
-            ) : itemOptions.length === 0 ? (
+            ) : filteredItems.length === 0 ? (
               <div className="px-4 py-8 text-center text-gray-500">
-                {searchTerm ? 'No items found' : 'No items available'}
+                {searchTerm ? 'No products found' : 'No products available'}
               </div>
             ) : (
-              itemOptions.map((option) => {
-                const optionKey = option.dimension ? option.dimension._id : option.item._id;
-                const availableQty = option.dimension ? option.dimension.availableQuantity : (option.item.availableQuantity || 0);
+              filteredItems.map((item) => {
+                const totalStock = getTotalStock(item);
                 
                 return (
                   <button
-                    key={optionKey}
+                    key={item._id}
                     type="button"
-                    onClick={() => handleSelect(option.item, option.dimension)}
-                    disabled={availableOnly && availableQty <= 0}
-                    className={`
-                      w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50
-                      border-b border-gray-100 last:border-b-0
-                      ${(availableOnly && availableQty <= 0) 
-                        ? 'opacity-50 cursor-not-allowed' 
-                        : 'cursor-pointer'
-                      }
-                    `}
+                    onClick={() => handleSelect(item)}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50 border-b border-gray-100 last:border-b-0 cursor-pointer"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center space-x-2">
                           <span className="font-medium text-gray-900 truncate">
-                            {option.item.name}
+                            {item.name}
                           </span>
-                          {showStock && getStockIcon(option.item, option.dimension)}
+                          {showStock && getStockIcon(item)}
                         </div>
                         <div className="text-sm text-gray-600 truncate">
-                          SKU: {optionKey}
+                          SKU: {item.sku}
                         </div>
-                        {option.dimension && (
+                        {item.type === 'finished_product' && item.dimensions && (
                           <div className="text-sm text-gray-500 truncate">
-                            Dimension: {option.dimension.dimension}
+                            {item.dimensions.length} dimension(s) available
                           </div>
                         )}
-                        {option.item.description && (
+                        {item.description && (
                           <div className="text-xs text-gray-400 truncate mt-1">
-                            {option.item.description}
+                            {item.description}
                           </div>
                         )}
                       </div>
                       {showStock && (
                         <div className="ml-4 text-right flex-shrink-0">
-                          {getStockText(option.item, option.dimension)}
+                          <div className="text-xs text-gray-500">
+                            <div>Total: {totalStock} {item.unit}</div>
+                            {item.type === 'finished_product' && item.dimensions && (
+                              <div>Dimensions: {item.dimensions.length}</div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -266,12 +208,12 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
           </div>
 
           {/* Clear Selection */}
-          {selectedData && (
+          {selectedItem && (
             <div className="border-t border-gray-200 p-2">
               <button
                 type="button"
                 onClick={() => {
-                  onChange(null, null);
+                  onChange(null);
                   setIsOpen(false);
                   setSearchTerm('');
                 }}
@@ -295,4 +237,4 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
   );
 };
 
-export default InventoryDropdown;
+export default ProductDropdown;

@@ -10,6 +10,16 @@ interface OrderStatusBadgeProps {
 const OrderStatusBadge: React.FC<OrderStatusBadgeProps> = ({ status, size = 'md' }) => {
   const getStatusConfig = (status: OrderStatus) => {
     const configs = {
+      'draft': { 
+        label: 'Draft', 
+        variant: 'secondary' as const,
+        dot: true 
+      },
+      'pending_dispatch_approval': { 
+        label: 'Pending Dispatch Approval', 
+        variant: 'warning' as const,
+        dot: true 
+      },
       'pending_guard_approval': { 
         label: 'Pending Guard Approval', 
         variant: 'warning' as const,

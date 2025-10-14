@@ -124,6 +124,17 @@ getOrdersByStatus: async (params?: {
     return response.data;
   },
 
+  approveDispatch: async (orderId: string, vehicleData: {
+    number: string;
+    driverName: string;
+    driverNumber: string;
+  }): Promise<ApiResponse<Order>> => {
+    const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}/approve-dispatch`, {
+      vehicle: vehicleData
+    });
+    return response.data;
+  },
+
   guardApprove: async (orderId: string): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}/guard-approve`);
     return response.data;
@@ -350,6 +361,74 @@ export const inventoryAPI = {
     });
     return response.data;
   },
+};
+
+// Needed Items API
+export const neededItemsAPI = {
+  getNeededItems: async (params?: {
+    status?: string;
+    priority?: string;
+    page?: number;
+    limit?: number;
+    orderId?: string;
+    canFulfill?: string;
+  }): Promise<ApiResponse<{
+    neededItems: any[];
+    pagination: {
+      total: number;
+      page: number;
+      pages: number;
+      limit: number;
+    };
+  }>> => {
+    const response = await api.get('/needed-items', { params });
+    return response.data;
+  },
+
+  getFulfillableItems: async (): Promise<ApiResponse<{
+    fulfillableItems: any[];
+    count: number;
+  }>> => {
+    const response = await api.get('/needed-items/fulfillable');
+    return response.data;
+  },
+
+  fulfillNeededItems: async (data: {
+    itemIds: string[];
+    notes?: string;
+  }): Promise<ApiResponse<{
+    fulfilled: any[];
+    errors: any[];
+    summary: {
+      totalRequested: number;
+      fulfilled: number;
+      failed: number;
+    };
+  }>> => {
+    const response = await api.post('/needed-items/fulfill', data);
+    return response.data;
+  },
+
+  checkFulfillmentStatus: async (data: {
+    itemIds: string[];
+  }): Promise<ApiResponse<any[]>> => {
+    const response = await api.post('/needed-items/check-status', data);
+    return response.data;
+  },
+
+  autoDetectNeededItems: async (orderId: string): Promise<ApiResponse<{
+    neededItems: any[];
+    canDispatch: boolean;
+    order: any;
+  }>> => {
+    const response = await api.post(`/needed-items/auto-detect/${orderId}`);
+    return response.data;
+  },
+
+  deleteNeededItem: async (id: string): Promise<ApiResponse<{}>> => {
+    const response = await api.delete(`/needed-items/${id}`);
+    return response.data;
+  }
 };
 
 // Gate Pass API

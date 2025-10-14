@@ -23,6 +23,13 @@ router.post('/',
   orderController.createOrder
 );
 
+// Approve dispatch (when dispatch button is clicked)
+router.patch('/:id/approve-dispatch',
+  authorize('Store_Keeper', 'Purchasing', 'General_Manager', 'Director'),
+  logActivity('ORDER_APPROVE_DISPATCH', 'Order'),
+  orderController.approveDispatch
+);
+
 // Guard approve order
 router.patch('/:id/guard-approve',
   authorize('Guard','Director'),

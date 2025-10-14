@@ -1,41 +1,75 @@
 import React, { useState, useEffect } from 'react';
-import {
-  AlertTriangle,
-  Clock,
-  Package,
-  ShoppingCart,
-  CheckCircle2,
-  RefreshCw,
-  Eye,
-  ArrowRight
-} from 'lucide-react';
-import DashboardLayout from '../components/layout/DashboardLayout';
+import { Package, AlertTriangle, CheckCircle, Clock, Filter, RefreshCw } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
-import Table from '../components/common/Table';
-import Modal from '../components/common/Modal';
 import Badge from '../components/common/Badge';
-import { inventoryAPI, ordersAPI } from '../services/api';
-import { InventoryItem, Order } from '../types';
+import { neededItemsAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+
+interface NeededItem {
+  _id: string;
+  productName: string;
+  dimensions?: string;
+  quantityNeeded: number;
+  bundlesNeeded: number;
+  quantityFulfilled: number;
+  bundlesFulfilled: number;
+  status: 'pending' | 'partially_fulfilled' | 'fulfilled';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  orderReference: {
+    orderId: string;
+    orderNumber: number;
+    customerOrSupplier: string;
+  };
+  inventoryItemId: {
+    name: string;
+    type: string;
+    availableQuantity: number;
+    status: string;
+  };
+  createdAt: string;
+  fulfilledAt?: string;
+  notes?: string;
+  fulfillmentCheck?: {
+    canFulfill: boolean;
+    availableQuantity: number;
+    neededQuantity: number;
+    reason?: string;
+  };
+}
 
 const NeededItems: React.FC = () => {
-  const [neededItems, setNeededItems] = useState<InventoryItem[]>([]);
-  const [blockedOrders, setBlockedOrders] = useState<Order[]>([]);
+  const { hasRole } = useAuth();
+  const [neededItems, setNeededItems] = useState<NeededItem[]>([]);
+  const [fulfillableItems, setFulfillableItems] = useState<NeededItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [fulfilling, setFulfilling] = useState<string | null>(null);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<'all' | 'fulfillable'>('all');
+  const [filters, setFilters] = useState({
+    status: 'all',
+    priority: 'all',
+    canFulfill: 'all'
+  });
+
+  const canManageNeededItems = hasRole(['General_Manager', 'Director', 'Store_Keeper']);
 
   useEffect(() => {
     fetchNeededItems();
-  }, []);
+    if (canManageNeededItems) {
+      fetchFulfillableItems();
+    }
+  }, [filters, canManageNeededItems]);
 
   const fetchNeededItems = async () => {
     try {
       setLoading(true);
-      const response = await inventoryAPI.getNeededItems();
-      setNeededItems(response.data?.neededItems || []);
-      setBlockedOrders(response.data?.blockedOrders || []);
+      const response = await neededItemsAPI.getNeededItems({
+        ...filters,
+        status: filters.status === 'all' ? undefined : filters.status,
+        priority: filters.priority === 'all' ? undefined : filters.priority,
+        canFulfill: filters.canFulfill === 'all' ? undefined : filters.canFulfill
+      });
+      setNeededItems(response.data.neededItems);
     } catch (error) {
       console.error('Error fetching needed items:', error);
     } finally {
@@ -43,31 +77,69 @@ const NeededItems: React.FC = () => {
     }
   };
 
-  const handleFulfillOrder = async (orderId: string) => {
+  const fetchFulfillableItems = async () => {
     try {
-      setFulfilling(orderId);
-      await ordersAPI.fulfillBlockedOrder(orderId);
-      await fetchNeededItems(); // Refresh data
-    } catch (error: any) {
-      console.error('Error fulfilling order:', error);
-      alert(error.response?.data?.message || 'Failed to fulfill order');
-    } finally {
-      setFulfilling(null);
+      const response = await neededItemsAPI.getFulfillableItems();
+      setFulfillableItems(response.data.fulfillableItems);
+    } catch (error) {
+      console.error('Error fetching fulfillable items:', error);
     }
   };
 
-  const getOrderPriorityBadge = (priority: string) => {
+  const handleFulfillItems = async () => {
+    if (selectedItems.length === 0) return;
+
+    try {
+      setLoading(true);
+      const response = await neededItemsAPI.fulfillNeededItems({
+        itemIds: selectedItems,
+        notes: 'Fulfilled via needed items management'
+      });
+
+      if (response.data.fulfilled.length > 0) {
+        alert(`Successfully fulfilled ${response.data.fulfilled.length} items`);
+        setSelectedItems([]);
+        fetchNeededItems();
+        fetchFulfillableItems();
+      }
+
+      if (response.data.errors.length > 0) {
+        console.error('Fulfillment errors:', response.data.errors);
+        alert(`${response.data.errors.length} items could not be fulfilled. Check console for details.`);
+      }
+    } catch (error) {
+      console.error('Error fulfilling items:', error);
+      alert('Error fulfilling items');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Badge variant="warning">Pending</Badge>;
+      case 'partially_fulfilled':
+        return <Badge variant="info">Partially Fulfilled</Badge>;
+      case 'fulfilled':
+        return <Badge variant="success">Fulfilled</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const getPriorityBadge = (priority: string) => {
     switch (priority) {
       case 'urgent':
-        return <Badge variant="error" size="sm">Urgent</Badge>;
+        return <Badge variant="error">Urgent</Badge>;
       case 'high':
-        return <Badge variant="warning" size="sm">High</Badge>;
+        return <Badge variant="warning">High</Badge>;
       case 'medium':
-        return <Badge variant="info" size="sm">Medium</Badge>;
+        return <Badge variant="info">Medium</Badge>;
       case 'low':
-        return <Badge variant="secondary" size="sm">Low</Badge>;
+        return <Badge variant="secondary">Low</Badge>;
       default:
-        return <Badge variant="secondary" size="sm">Medium</Badge>;
+        return <Badge variant="secondary">{priority}</Badge>;
     }
   };
 
@@ -75,390 +147,295 @@ const NeededItems: React.FC = () => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
+      year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
     });
   };
 
-  const neededItemsColumns = [
-    {
-      key: 'name',
-      title: 'Item',
-      render: (value: string, record: InventoryItem) => (
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-orange-50 rounded-lg">
-            <Package className="h-4 w-4 text-orange-600" />
-          </div>
-          <div>
-            <div className="font-medium text-gray-900">{value}</div>
-            <div className="text-sm text-gray-500">{record.sku}</div>
-            {record.dimensions && (
-              <div className="text-xs text-gray-400">{record.dimensions}</div>
-            )}
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'type',
-      title: 'Type',
-      render: (value: string) => (
-        <Badge variant="secondary" size="sm">
-          {value.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-        </Badge>
-      ),
-    },
-    {
-      key: 'quantity',
-      title: 'Needed Quantity',
-      align: 'right' as const,
-      render: (value: number, record: InventoryItem) => (
-        <div className="text-right">
-          <div className="font-medium text-red-600">{value.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">{record.unit}</div>
-        </div>
-      ),
-    },
-    {
-      key: 'blockedOrders',
-      title: 'Blocked Orders',
-      align: 'center' as const,
-      render: (value: any[], record: InventoryItem) => (
-        <div className="text-center">
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-            {value?.length || 0} orders
-          </span>
-        </div>
-      ),
-    },
-  ];
+  const displayItems = activeTab === 'fulfillable' ? fulfillableItems : neededItems;
 
-  const blockedOrdersColumns = [
-    {
-      key: 'orderNumber',
-      title: 'Order #',
-      render: (value: number, record: Order) => (
-        <div className="flex items-center space-x-2">
-          <ShoppingCart className="h-4 w-4 text-gray-400" />
-          <span className="font-medium">#{value}</span>
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Needed Items</h1>
+          <p className="text-gray-600 mt-1">
+            Manage items needed for order fulfillment
+          </p>
         </div>
-      ),
-    },
-    {
-      key: 'type',
-      title: 'Type',
-      render: (value: string) => (
-        <Badge variant={value === 'dispatch' ? 'primary' : 'warning'} size="sm">
-          {value}
-        </Badge>
-      ),
-    },
-    {
-      key: 'customerOrSupplier',
-      title: 'Customer/Supplier',
-      render: (value: string) => (
-        <div className="max-w-32 truncate" title={value}>
-          {value}
-        </div>
-      ),
-    },
-    {
-      key: 'priority',
-      title: 'Priority',
-      render: (value: string) => getOrderPriorityBadge(value),
-    },
-    {
-      key: 'blockedAt',
-      title: 'Blocked Since',
-      render: (value: string) => (
-        <div className="text-sm text-gray-600">
-          {formatDate(value)}
-        </div>
-      ),
-    },
-    {
-      key: 'blockedReason',
-      title: 'Reason',
-      render: (value: string) => (
-        <div className="max-w-48 text-sm text-gray-600 truncate" title={value}>
-          {value}
-        </div>
-      ),
-    },
-    {
-      key: 'actions',
-      title: 'Actions',
-      render: (_: any, record: Order) => (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3">
           <Button
             variant="ghost"
             size="sm"
-            icon={Eye}
             onClick={() => {
-              setSelectedOrder(record);
-              setShowOrderModal(true);
+              fetchNeededItems();
+              if (canManageNeededItems) fetchFulfillableItems();
             }}
-          />
-          <Button
-            variant="primary"
-            size="sm"
-            loading={fulfilling === record._id}
-            onClick={() => handleFulfillOrder(record._id)}
-            disabled={!!fulfilling}
-          >
-            Try Fulfill
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
-  const stats = [
-    {
-      title: 'Needed Items',
-      value: neededItems.length,
-      icon: Package,
-      color: 'warning' as const,
-      description: 'Items required for production'
-    },
-    {
-      title: 'Blocked Orders',
-      value: blockedOrders.length,
-      icon: AlertTriangle,
-      color: 'error' as const,
-      description: 'Orders waiting for inventory'
-    },
-    {
-      title: 'Total Quantity Needed',
-      value: neededItems.reduce((sum, item) => sum + item.quantity, 0),
-      icon: ShoppingCart,
-      color: 'info' as const,
-      description: 'Combined needed quantities'
-    },
-    {
-      title: 'Urgent Orders',
-      value: blockedOrders.filter(order => order.priority === 'urgent').length,
-      icon: Clock,
-      color: 'error' as const,
-      description: 'High priority blocked orders'
-    },
-  ];
-
-  return (
-    <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Needed Items & Blocked Orders</h1>
-            <p className="text-gray-600 mt-2">Monitor inventory shortages and blocked orders</p>
-          </div>
-          <Button
-            icon={RefreshCw}
-            onClick={fetchNeededItems}
             disabled={loading}
           >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
+      </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {stats.map((stat, index) => (
-            <Card key={index}>
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('all')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'all'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            All Items ({neededItems.length})
+          </button>
+          {canManageNeededItems && (
+            <button
+              onClick={() => setActiveTab('fulfillable')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'fulfillable'
+                  ? 'border-green-500 text-green-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Can Fulfill ({fulfillableItems.length})
+            </button>
+          )}
+        </nav>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <Card.Body>
+          <div className="flex items-center space-x-4">
+            <Filter className="h-5 w-5 text-gray-400" />
+            <div className="flex items-center space-x-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                  className="border border-gray-300 rounded-md px-3 py-1 text-sm"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="partially_fulfilled">Partially Fulfilled</option>
+                  <option value="fulfilled">Fulfilled</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Priority
+                </label>
+                <select
+                  value={filters.priority}
+                  onChange={(e) => setFilters({ ...filters, priority: e.target.value })}
+                  className="border border-gray-300 rounded-md px-3 py-1 text-sm"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              {activeTab === 'all' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Fulfillment
+                  </label>
+                  <select
+                    value={filters.canFulfill}
+                    onChange={(e) => setFilters({ ...filters, canFulfill: e.target.value })}
+                    className="border border-gray-300 rounded-md px-3 py-1 text-sm"
+                  >
+                    <option value="all">All Items</option>
+                    <option value="true">Can Fulfill</option>
+                    <option value="false">Cannot Fulfill</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        </Card.Body>
+      </Card>
+
+      {/* Bulk Actions */}
+      {canManageNeededItems && activeTab === 'fulfillable' && selectedItems.length > 0 && (
+        <Card>
+          <Card.Body>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {selectedItems.length} item(s) selected
+              </span>
+              <Button
+                variant="success"
+                size="sm"
+                onClick={handleFulfillItems}
+                disabled={loading}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Fulfill Selected Items
+              </Button>
+            </div>
+          </Card.Body>
+        </Card>
+      )}
+
+      {/* Items List */}
+      <div className="space-y-4">
+        {loading ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="text-gray-500 mt-2">Loading needed items...</p>
+          </div>
+        ) : displayItems.length === 0 ? (
+          <Card>
+            <Card.Body className="text-center py-8">
+              <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                {activeTab === 'fulfillable' ? 'No Fulfillable Items' : 'No Needed Items'}
+              </h3>
+              <p className="text-gray-500">
+                {activeTab === 'fulfillable' 
+                  ? 'All needed items are currently out of stock or already fulfilled.'
+                  : 'No items are currently needed for any orders.'
+                }
+              </p>
+            </Card.Body>
+          </Card>
+        ) : (
+          displayItems.map((item) => (
+            <Card key={item._id} hover>
               <Card.Body>
-                <div className="flex items-center">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">
-                      {typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">{stat.description}</p>
-                  </div>
-                  <div className={`p-3 rounded-lg ${
-                    stat.color === 'error' ? 'bg-red-50' :
-                    stat.color === 'warning' ? 'bg-yellow-50' :
-                    stat.color === 'info' ? 'bg-blue-50' : 'bg-gray-50'
-                  }`}>
-                    <stat.icon className={`h-6 w-6 ${
-                      stat.color === 'error' ? 'text-red-600' :
-                      stat.color === 'warning' ? 'text-yellow-600' :
-                      stat.color === 'info' ? 'text-blue-600' : 'text-gray-600'
-                    }`} />
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start space-x-4">
+                    {canManageNeededItems && activeTab === 'fulfillable' && (
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.includes(item._id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedItems([...selectedItems, item._id]);
+                          } else {
+                            setSelectedItems(selectedItems.filter(id => id !== item._id));
+                          }
+                        }}
+                        className="mt-1"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {item.productName}
+                        </h3>
+                        {item.dimensions && (
+                          <Badge variant="secondary">{item.dimensions}</Badge>
+                        )}
+                        {getStatusBadge(item.status)}
+                        {getPriorityBadge(item.priority)}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Quantity Needed</p>
+                          <p className="text-sm text-gray-900">
+                            {item.quantityNeeded - item.quantityFulfilled} / {item.quantityNeeded} units
+                          </p>
+                          {item.bundlesNeeded > 0 && (
+                            <p className="text-xs text-gray-500">
+                              {item.bundlesNeeded - item.bundlesFulfilled} / {item.bundlesNeeded} bundles
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Order Reference</p>
+                          <p className="text-sm text-gray-900">
+                            #{item.orderReference.orderNumber}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {item.orderReference.customerOrSupplier}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">Inventory Status</p>
+                          <p className="text-sm text-gray-900">
+                            {item.inventoryItemId.availableQuantity} available
+                          </p>
+                          <Badge 
+                            variant={
+                              item.inventoryItemId.status === 'available' ? 'success' :
+                              item.inventoryItemId.status === 'low_stock' ? 'warning' : 'error'
+                            }
+                            className="text-xs"
+                          >
+                            {item.inventoryItemId.status}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {item.fulfillmentCheck && (
+                        <div className={`p-3 rounded-lg border ${
+                          item.fulfillmentCheck.canFulfill 
+                            ? 'bg-green-50 border-green-200' 
+                            : 'bg-red-50 border-red-200'
+                        }`}>
+                          <div className="flex items-center space-x-2">
+                            {item.fulfillmentCheck.canFulfill ? (
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                            ) : (
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                            )}
+                            <span className={`text-sm font-medium ${
+                              item.fulfillmentCheck.canFulfill ? 'text-green-800' : 'text-red-800'
+                            }`}>
+                              {item.fulfillmentCheck.canFulfill ? 'Can Fulfill' : 'Cannot Fulfill'}
+                            </span>
+                          </div>
+                          {item.fulfillmentCheck.reason && (
+                            <p className={`text-sm mt-1 ${
+                              item.fulfillmentCheck.canFulfill ? 'text-green-700' : 'text-red-700'
+                            }`}>
+                              {item.fulfillmentCheck.reason}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center space-x-4 text-sm text-gray-500 mt-3">
+                        <div className="flex items-center space-x-1">
+                          <Clock className="h-4 w-4" />
+                          <span>Created: {formatDate(item.createdAt)}</span>
+                        </div>
+                        {item.fulfilledAt && (
+                          <div className="flex items-center space-x-1">
+                            <CheckCircle className="h-4 w-4" />
+                            <span>Fulfilled: {formatDate(item.fulfilledAt)}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {item.notes && (
+                        <div className="mt-3 p-2 bg-gray-50 rounded border">
+                          <p className="text-sm text-gray-700">{item.notes}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </Card.Body>
             </Card>
-          ))}
-        </div>
-
-        {/* Needed Items Table */}
-        <Card>
-          <Card.Header>
-            <div className="flex items-center space-x-2">
-              <Package className="h-5 w-5 text-gray-400" />
-              <h2 className="text-lg font-medium">Items Needed for Production</h2>
-            </div>
-          </Card.Header>
-          <Card.Body>
-            <Table
-              columns={neededItemsColumns}
-              data={neededItems}
-              loading={loading}
-              emptyText="No items needed - all inventory sufficient!"
-            />
-          </Card.Body>
-        </Card>
-
-        {/* Blocked Orders Table */}
-        <Card>
-          <Card.Header>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-                <h2 className="text-lg font-medium">Blocked Orders</h2>
-              </div>
-              {blockedOrders.length > 0 && (
-                <Badge variant="error" size="sm">
-                  {blockedOrders.length} blocked
-                </Badge>
-              )}
-            </div>
-          </Card.Header>
-          <Card.Body>
-            <Table
-              columns={blockedOrdersColumns}
-              data={blockedOrders}
-              loading={loading}
-              emptyText="No blocked orders - all orders can be fulfilled!"
-            />
-          </Card.Body>
-        </Card>
-
-        {/* Order Details Modal */}
-        {selectedOrder && (
-          <OrderDetailsModal
-            order={selectedOrder}
-            isOpen={showOrderModal}
-            onClose={() => {
-              setShowOrderModal(false);
-              setSelectedOrder(null);
-            }}
-            onFulfill={() => handleFulfillOrder(selectedOrder._id)}
-            fulfilling={fulfilling === selectedOrder._id}
-          />
+          ))
         )}
       </div>
-    </DashboardLayout>
-  );
-};
-
-// Order Details Modal Component
-const OrderDetailsModal: React.FC<{
-  order: Order;
-  isOpen: boolean;
-  onClose: () => void;
-  onFulfill: () => void;
-  fulfilling: boolean;
-}> = ({ order, isOpen, onClose, onFulfill, fulfilling }) => {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Order #${order.orderNumber} Details`} size="lg">
-      <div className="space-y-6">
-        {/* Order Info */}
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-600">Customer/Supplier</label>
-              <p className="text-gray-900">{order.customerOrSupplier}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Vehicle</label>
-              <p className="text-gray-900">{order.vehicle?.number || 'N/A'}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Type</label>
-              <p>
-                <Badge variant={order.type === 'dispatch' ? 'primary' : 'warning'}>
-                  {order.type}
-                </Badge>
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-600">Priority</label>
-              <p>
-                <Badge variant={order.priority === 'urgent' ? 'error' : 'secondary'}>
-                  {order.priority || 'medium'}
-                </Badge>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Blocked Info */}
-        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-          <div className="flex items-center space-x-2 mb-2">
-            <AlertTriangle className="h-5 w-5 text-red-500" />
-            <span className="font-medium text-red-800">Order Blocked</span>
-          </div>
-          <p className="text-red-700 text-sm">{order.blockedReason}</p>
-          {order.blockedAt && (
-            <p className="text-red-600 text-xs mt-1">
-              Blocked since: {new Date(order.blockedAt).toLocaleString()}
-            </p>
-          )}
-        </div>
-
-        {/* Products */}
-        <div>
-          <h3 className="text-lg font-medium text-gray-900 mb-3">Products</h3>
-          <div className="space-y-3">
-            {order.products.map((product, index) => (
-              <div key={index} className="bg-white border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium text-gray-900">{product.name}</h4>
-                    {product.dimensions && (
-                      <p className="text-sm text-gray-600">{product.dimensions}</p>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-600">
-                        {product.quantityFulfilled || 0}
-                      </span>
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
-                      <span className="font-medium">
-                        {product.quantity} {product.unit || 'pcs'}
-                      </span>
-                    </div>
-                    {(product.quantityPending || 0) > 0 && (
-                      <Badge variant="warning" size="sm">
-                        {product.quantityPending} pending
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-          <Button
-            variant="primary"
-            onClick={onFulfill}
-            loading={fulfilling}
-            icon={CheckCircle2}
-          >
-            Try to Fulfill Order
-          </Button>
-        </div>
-      </div>
-    </Modal>
+    </div>
   );
 };
 
