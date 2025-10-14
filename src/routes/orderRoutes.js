@@ -1,13 +1,13 @@
 const express = require('express');
 const { orderController } = require('../controllers');
 const { authenticate, authorize, logActivity, validate } = require('../middlewares');
-const { 
-  createOrderSchema, 
-  emptyWeightSchema, 
-  finalWeightSchema, 
-  loadingCompleteSchema, 
+const {
+  createOrderSchema,
+  emptyWeightSchema,
+  finalWeightSchema,
+  loadingCompleteSchema,
   generateInvoiceSchema,
-  orderQuerySchema 
+  orderQuerySchema
 } = require('../validators');
 
 const router = express.Router();
@@ -23,6 +23,12 @@ router.post('/',
   orderController.createOrder
 );
 
+// Check product availability for dispatch
+router.get('/:id/check-availability',
+  authorize('Store_Keeper', 'Purchasing', 'General_Manager', 'Director'),
+  orderController.checkProductAvailability
+);
+
 // Approve dispatch (when dispatch button is clicked)
 router.patch('/:id/approve-dispatch',
   authorize('Store_Keeper', 'Purchasing', 'General_Manager', 'Director'),
@@ -32,14 +38,14 @@ router.patch('/:id/approve-dispatch',
 
 // Guard approve order
 router.patch('/:id/guard-approve',
-  authorize('Guard','Director'),
+  authorize('Guard', 'Director'),
   logActivity('ORDER_GUARD_APPROVE', 'Order'),
   orderController.guardApprove
 );
 
 // Record empty weight
 router.post('/:id/weight/empty',
-  authorize('Weighbridge','Director'),
+  authorize('Weighbridge', 'Director'),
   validate(emptyWeightSchema),
   logActivity('ORDER_EMPTY_WEIGHT', 'Order'),
   orderController.recordEmptyWeight
@@ -47,7 +53,7 @@ router.post('/:id/weight/empty',
 
 // Ready for loading (informational)
 router.patch('/:id/ready-loading',
-  authorize('Weighbridge', 'Loading', 'General_Manager','Director'),
+  authorize('Weighbridge', 'Loading', 'General_Manager', 'Director'),
   logActivity('ORDER_READY_LOADING', 'Order'),
   orderController.readyForLoading
 );
@@ -60,7 +66,7 @@ router.patch('/:id/ready-unloading',
 
 // Accept loading
 router.patch('/:id/accept-loading',
-  authorize('Loading','Director'),
+  authorize('Loading', 'Director'),
   logActivity('ORDER_ACCEPT_LOADING', 'Order'),
   orderController.acceptLoading
 );
@@ -80,7 +86,7 @@ router.post('/:id/unloading-complete',
 
 // Loading complete
 router.post('/:id/loading-complete',
-  authorize('Loading','Director'),
+  authorize('Loading', 'Director'),
   validate(loadingCompleteSchema),
   logActivity('ORDER_LOADING_COMPLETE', 'Order'),
   orderController.loadingComplete
@@ -88,7 +94,7 @@ router.post('/:id/loading-complete',
 
 // Record final weight
 router.post('/:id/weight/final',
-  authorize('Weighbridge','Director'),
+  authorize('Weighbridge', 'Director'),
   validate(finalWeightSchema),
   logActivity('ORDER_FINAL_WEIGHT', 'Order'),
   orderController.recordFinalWeight
@@ -96,7 +102,7 @@ router.post('/:id/weight/final',
 
 // Generate invoice
 router.post('/:id/generate-invoice',
-  authorize('Accounting','Director'),
+  authorize('Accounting', 'Director'),
   validate(generateInvoiceSchema),
   logActivity('ORDER_GENERATE_INVOICE', 'Order'),
   orderController.generateInvoice
@@ -111,7 +117,7 @@ router.patch('/:id/move-to-gate',
 
 // Exit order
 router.patch('/:id/exit',
-  authorize('Guard','Director'),
+  authorize('Guard', 'Director'),
   logActivity('ORDER_EXIT', 'Order'),
   orderController.exitOrder
 );
@@ -124,7 +130,7 @@ router.get('/',
 );
 
 router.get('/by-status',
-  authorize('General_Manager', 'Director', 'Store_Keeper', 'Purchasing','Guard'),
+  authorize('General_Manager', 'Director', 'Store_Keeper', 'Purchasing', 'Guard'),
   orderController.getOrdersByStatus
 );
 

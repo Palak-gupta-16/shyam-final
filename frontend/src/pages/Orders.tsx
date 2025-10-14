@@ -382,6 +382,13 @@ const Orders: React.FC = () => {
                 hasFare={orderHasFare(order._id)}
                 onRecordFare={handleRecordFare}
                 pageType="orders"
+                onOrderUpdate={(updatedOrder) => {
+                  setOrders(prevOrders => 
+                    prevOrders.map(o => 
+                      o._id === updatedOrder._id ? updatedOrder : o
+                    )
+                  );
+                }}
               />
             ))}
           </div>

@@ -501,6 +501,112 @@ const getOrders = async (req, res) => {
   }
 };
 
+// Check product availability for dispatch
+const checkProductAvailability = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await Order.findById(id).populate('products.inventoryItemId');
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (order.type !== 'dispatch') {
+      return res.status(400).json({ message: 'Availability check is only for dispatch orders' });
+    }
+
+    let canDispatch = true;
+    const availabilityResults = [];
+    const neededItems = [];
+
+    for (const product of order.products) {
+      const inventoryItem = await Inventory.findById(product.inventoryItemId);
+      if (!inventoryItem) {
+        canDispatch = false;
+        availabilityResults.push({
+          productName: product.name,
+          dimensions: product.dimensions,
+          requested: product.quantity,
+          available: 0,
+          status: 'not_found',
+          message: 'Product not found in inventory'
+        });
+        continue;
+      }
+
+      let availableQuantity = 0;
+      let dimensionInfo = null;
+
+      if (inventoryItem.type === 'finished_product' && inventoryItem.dimensions && inventoryItem.dimensions.length > 0 && product.dimensionId) {
+        // For finished products with dimensions, check specific dimension availability
+        const dimension = inventoryItem.dimensions.id(product.dimensionId);
+        if (dimension) {
+          availableQuantity = dimension.availableQuantity;
+          dimensionInfo = {
+            dimension: dimension.dimension,
+            sku: dimension.sku,
+            totalQuantity: dimension.quantity,
+            reservedQuantity: dimension.reservedQuantity,
+            availableQuantity: dimension.availableQuantity,
+            bundles: dimension.bundles
+          };
+        }
+      } else {
+        // For raw materials and simple inventory
+        availableQuantity = inventoryItem.availableQuantity || 0;
+      }
+
+      const isAvailable = availableQuantity >= product.quantity;
+      
+      if (!isAvailable) {
+        canDispatch = false;
+        const shortfall = product.quantity - availableQuantity;
+        
+        neededItems.push({
+          productName: inventoryItem.name,
+          dimensions: product.dimensions || '',
+          quantityNeeded: shortfall,
+          inventoryItemId: inventoryItem._id,
+          dimensionId: product.dimensionId
+        });
+      }
+
+      availabilityResults.push({
+        productName: product.name,
+        dimensions: product.dimensions,
+        requested: product.quantity,
+        available: availableQuantity,
+        status: isAvailable ? 'available' : 'insufficient',
+        message: isAvailable 
+          ? 'Available for dispatch' 
+          : `Need ${shortfall} more units (${availableQuantity}/${product.quantity} available)`,
+        dimensionInfo
+      });
+    }
+
+    // Update order's canDispatch status
+    order.canDispatch = canDispatch;
+    await order.save();
+
+    res.json({
+      message: canDispatch ? 'All products available for dispatch' : 'Some products need restocking',
+      canDispatch,
+      availabilityResults,
+      neededItems: neededItems.length > 0 ? neededItems : null,
+      order: {
+        _id: order._id,
+        orderNumber: order.orderNumber,
+        canDispatch: order.canDispatch,
+        status: order.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Check product availability error:', error);
+    res.status(500).json({ message: 'Server error checking product availability' });
+  }
+};
+
 // Get order by ID
 const getOrderById = async (req, res) => {
   try {
@@ -1290,6 +1396,7 @@ const exitOrder = async (req, res) => {
 
 module.exports = {
   createOrder,
+  checkProductAvailability,
   approveDispatch,
   getOrders,
   getOrdersByStatus,

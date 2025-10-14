@@ -1,11 +1,12 @@
-import React from 'react';
-import { Calendar, Truck, Package, Scale, Receipt } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, Truck, Package, Scale, Receipt, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Order } from '../../types';
 import Card from '../common/Card';
 import Badge from '../common/Badge';
 import Button from '../common/Button';
 import OrderStatusBadge from './OrderStatusBadge';
 import { useAuth } from '../../context/AuthContext';
+import { ordersAPI } from '../../services/api';
 
 interface OrderCardProps {
   order: Order;
@@ -14,6 +15,7 @@ interface OrderCardProps {
   hasFare?: boolean;
   onRecordFare?: (order: Order) => void;
   pageType?: 'orders' | 'accounts' | 'gate' | 'other';
+  onOrderUpdate?: (updatedOrder: Order) => void;
 }
 
 const OrderCard: React.FC<OrderCardProps> = ({ 
@@ -22,9 +24,13 @@ const OrderCard: React.FC<OrderCardProps> = ({
   showActions = true,
   hasFare = false,
   onRecordFare,
-  pageType = 'other'
+  pageType = 'other',
+  onOrderUpdate
 }) => {
   const { hasRole } = useAuth();
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [availabilityResults, setAvailabilityResults] = useState<any>(null);
+  const [showAvailabilityDetails, setShowAvailabilityDetails] = useState(false);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -34,6 +40,31 @@ const OrderCard: React.FC<OrderCardProps> = ({
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const handleCheckAvailability = async () => {
+    if (checkingAvailability) return;
+    
+    setCheckingAvailability(true);
+    try {
+      const response = await ordersAPI.checkProductAvailability(order._id);
+      setAvailabilityResults(response.data);
+      setShowAvailabilityDetails(true);
+      
+      // Update the order with the latest canDispatch status
+      if (onOrderUpdate && response.data?.order) {
+        const updatedOrder = {
+          ...order,
+          canDispatch: response.data.order.canDispatch
+        };
+        onOrderUpdate(updatedOrder);
+      }
+    } catch (error) {
+      console.error('Error checking availability:', error);
+      // You might want to show a toast notification here
+    } finally {
+      setCheckingAvailability(false);
+    }
   };
 
   const getAvailableActions = (status: string, orderType: string) => {
@@ -60,9 +91,12 @@ const OrderCard: React.FC<OrderCardProps> = ({
     switch (status) {
       case 'draft':
         if (canCreateOrder && orderType === 'dispatch') {
-          // Only show Dispatch button if items are available or no needed items exist
+          // Always show Check Availability button for draft dispatch orders
+          actions.push({ label: 'Check Availability', action: 'check-availability', variant: 'primary' });
+          
+          // Show Dispatch button if items are available
           const hasNeededItems = order.neededItems && order.neededItems.length > 0;
-          if (!hasNeededItems && order.canDispatch !== false) {
+          if (!hasNeededItems && order.canDispatch === true) {
             actions.push({ label: 'Dispatch', action: 'approve-dispatch', variant: 'success' });
           }
         }
@@ -228,28 +262,104 @@ const OrderCard: React.FC<OrderCardProps> = ({
           {/* Dispatch Status Indicator */}
           {order.type === 'dispatch' && order.status === 'draft' && (
             <div className={`p-3 border rounded-lg ${
-              order.canDispatch 
+              order.canDispatch === true
                 ? 'bg-green-50 border-green-200' 
+                : order.canDispatch === false
+                ? 'bg-red-50 border-red-200'
                 : 'bg-blue-50 border-blue-200'
             }`}>
               <div className="flex items-center space-x-2">
                 <div className={`w-2 h-2 rounded-full ${
-                  order.canDispatch ? 'bg-green-500' : 'bg-blue-500'
+                  order.canDispatch === true 
+                    ? 'bg-green-500' 
+                    : order.canDispatch === false
+                    ? 'bg-red-500'
+                    : 'bg-blue-500'
                 }`}></div>
                 <span className={`font-medium text-sm ${
-                  order.canDispatch ? 'text-green-800' : 'text-blue-800'
+                  order.canDispatch === true 
+                    ? 'text-green-800' 
+                    : order.canDispatch === false
+                    ? 'text-red-800'
+                    : 'text-blue-800'
                 }`}>
-                  {order.canDispatch ? 'Ready for Dispatch' : 'Dispatch Order'}
+                  {order.canDispatch === true 
+                    ? 'Ready for Dispatch' 
+                    : order.canDispatch === false
+                    ? 'Insufficient Stock'
+                    : 'Check Availability'
+                  }
                 </span>
               </div>
               <p className={`text-sm mt-1 ${
-                order.canDispatch ? 'text-green-700' : 'text-blue-700'
+                order.canDispatch === true 
+                  ? 'text-green-700' 
+                  : order.canDispatch === false
+                  ? 'text-red-700'
+                  : 'text-blue-700'
               }`}>
-                {order.canDispatch 
+                {order.canDispatch === true
                   ? 'All items are available in stock. Click "Dispatch" to proceed.'
-                  : 'Click "Dispatch" to check availability and assign vehicle.'
+                  : order.canDispatch === false
+                  ? 'Some items are out of stock. Check availability for details.'
+                  : 'Click "Check Availability" to verify stock levels.'
                 }
               </p>
+            </div>
+          )}
+
+          {/* Availability Results */}
+          {showAvailabilityDetails && availabilityResults && (
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-gray-900">Stock Availability</h4>
+                <button
+                  onClick={() => setShowAvailabilityDetails(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="space-y-2">
+                {availabilityResults.availabilityResults?.map((result: any, index: number) => (
+                  <div key={index} className="flex items-center justify-between p-2 bg-white rounded border">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        {result.status === 'available' ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4 text-red-500" />
+                        )}
+                        <span className="font-medium text-sm">
+                          {result.productName}
+                          {result.dimensions && ` (${result.dimensions})`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">{result.message}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-medium">
+                        {result.available}/{result.requested}
+                      </div>
+                      <div className="text-xs text-gray-500">Available/Requested</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {availabilityResults.neededItems && availabilityResults.neededItems.length > 0 && (
+                <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                  <h5 className="font-medium text-yellow-800 text-sm mb-1">Items to Restock:</h5>
+                  <div className="space-y-1">
+                    {availabilityResults.neededItems.map((item: any, index: number) => (
+                      <div key={index} className="text-yellow-700 text-xs">
+                        • {item.productName} {item.dimensions && `(${item.dimensions})`}: {item.quantityNeeded} units
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -349,15 +459,25 @@ const OrderCard: React.FC<OrderCardProps> = ({
                     key={action.action}
                     variant={action.variant as any}
                     size="sm"
+                    disabled={action.action === 'check-availability' && checkingAvailability}
                     onClick={() => {
                       if (action.action === 'record-fare' && onRecordFare) {
                         onRecordFare(order);
+                      } else if (action.action === 'check-availability') {
+                        handleCheckAvailability();
                       } else {
                         onActionClick?.(action.action, order._id);
                       }
                     }}
                   >
-                    {action.label}
+                    {action.action === 'check-availability' && checkingAvailability ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                        Checking...
+                      </>
+                    ) : (
+                      action.label
+                    )}
                   </Button>
                 ))}
               </div>

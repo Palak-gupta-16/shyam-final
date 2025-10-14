@@ -124,6 +124,35 @@ getOrdersByStatus: async (params?: {
     return response.data;
   },
 
+  checkProductAvailability: async (orderId: string): Promise<ApiResponse<{
+    canDispatch: boolean;
+    availabilityResults: Array<{
+      productName: string;
+      dimensions?: string;
+      requested: number;
+      available: number;
+      status: 'available' | 'insufficient' | 'not_found';
+      message: string;
+      dimensionInfo?: any;
+    }>;
+    neededItems?: Array<{
+      productName: string;
+      dimensions: string;
+      quantityNeeded: number;
+      inventoryItemId: string;
+      dimensionId?: string;
+    }>;
+    order: {
+      _id: string;
+      orderNumber: number;
+      canDispatch: boolean;
+      status: string;
+    };
+  }>> => {
+    const response = await api.get(`/orders/${orderId}/check-availability`);
+    return response.data;
+  },
+
   approveDispatch: async (orderId: string, vehicleData: {
     number: string;
     driverName: string;
