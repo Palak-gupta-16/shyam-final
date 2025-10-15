@@ -1,4 +1,5 @@
 const { Inventory, Order } = require('../models');
+const { updateOrdersAvailabilityAfterInventoryChange } = require('./orderController');
 
 // Get all inventory with advanced filtering
 const getInventory = async (req, res) => {
@@ -104,6 +105,17 @@ const addInventoryItem = async (req, res) => {
     // Create new inventory item
     const item = new Inventory(itemData);
     await item.save();
+    
+    // Update order availability after new inventory is added
+    if (item.type === 'finished_product' && item.dimensions) {
+      // For finished products, check each dimension
+      for (const dimension of item.dimensions) {
+        await updateOrdersAvailabilityAfterInventoryChange(item._id, dimension._id, req.user._id);
+      }
+    } else {
+      // For raw materials and simple inventory
+      await updateOrdersAvailabilityAfterInventoryChange(item._id, null, req.user._id);
+    }
 
     // Populate the lastUpdatedBy field for response
     await item.populate('lastUpdatedBy', 'name alias');
@@ -181,6 +193,9 @@ const updateInventoryItem = async (req, res) => {
     
     // Check if this update can fulfill any needed items
     await checkAndFulfillNeededItems(item, dimensionId);
+    
+    // Update order availability after inventory change
+    await updateOrdersAvailabilityAfterInventoryChange(item._id, dimensionId, req.user._id);
 
     // Populate the lastUpdatedBy field for response
     await item.populate('lastUpdatedBy', 'name alias');

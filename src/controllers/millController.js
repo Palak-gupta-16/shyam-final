@@ -1,5 +1,6 @@
 const { MillHourlyReport, MillDailySummary, Inventory } = require('../models');
 const { checkAndFulfillBlockedOrders } = require('./inventoryController');
+const { updateOrdersAvailabilityAfterInventoryChange } = require('./orderController');
 
 // Create hourly report
 const createHourlyReport = async (req, res) => {
@@ -9,8 +10,8 @@ const createHourlyReport = async (req, res) => {
     // Check if report already exists for this date and hour
     const existingReport = await MillHourlyReport.findOne({ date, hour });
     if (existingReport) {
-      return res.status(400).json({ 
-        message: 'Hourly report already exists for this date and hour' 
+      return res.status(400).json({
+        message: 'Hourly report already exists for this date and hour'
       });
     }
 
@@ -39,15 +40,15 @@ const createHourlyReport = async (req, res) => {
 
   } catch (error) {
     console.error('Create hourly report error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: validationErrors 
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: validationErrors
       });
     }
-    
+
     res.status(500).json({ message: 'Server error creating hourly report' });
   }
 };
@@ -56,27 +57,114 @@ const createHourlyReport = async (req, res) => {
 const createDailySummary = async (req, res) => {
   try {
     console.log('Create daily summary request body:', JSON.stringify(req.body, null, 2));
-    
-    const { 
-      date, 
-      rawMaterials, 
+
+    const {
+      date,
+      rawMaterials,
       finishedProduct,
       wasteMaterials,
-      totalPieces, 
-      totalWeight, 
-      breakdownSummary, 
-      productionHours, 
-      efficiency, 
-      remarks 
+      totalPieces,
+      totalWeight,
+      breakdownSummary,
+      productionHours,
+      efficiency,
+      remarks
     } = req.body;
 
     // Check if summary already exists for this date
-    const existingSummary = await MillDailySummary.findOne({ date });
+    console.log('Checking for existing summary with date:', date);
+    console.log('Date type:', typeof date);
+    console.log('Date value:', date);
+
+    // Convert date to proper Date object for consistent comparison
+    const dateObj = new Date(date);
+    console.log('Converted date object:', dateObj);
+    console.log('Date object ISO string:', dateObj.toISOString());
+
+    // Multiple approaches to check for existing summaries
+    console.log('=== COMPREHENSIVE DATE CHECKING ===');
+
+    // Method 1: Direct date comparison
+    console.log('Method 1: Direct date comparison');
+    const directMatch = await MillDailySummary.findOne({ date: date });
+    console.log('Direct match result:', directMatch ? 'FOUND' : 'NOT FOUND');
+
+    // Method 2: Date object comparison
+    console.log('Method 2: Date object comparison');
+    const dateObjMatch = await MillDailySummary.findOne({ date: dateObj });
+    console.log('Date object match result:', dateObjMatch ? 'FOUND' : 'NOT FOUND');
+
+    // Method 3: Date range comparison
+    console.log('Method 3: Date range comparison');
+    const startOfDay = new Date(dateObj);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(dateObj);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    console.log('Searching for summaries between:', startOfDay.toISOString(), 'and', endOfDay.toISOString());
+
+    const rangeMatch = await MillDailySummary.findOne({
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+    console.log('Range match result:', rangeMatch ? 'FOUND' : 'NOT FOUND');
+
+    // Method 4: String-based date comparison (for debugging)
+    console.log('Method 4: String-based date search');
+    const dateString = dateObj.toISOString().split('T')[0]; // Get YYYY-MM-DD
+    console.log('Searching for date string:', dateString);
+
+    const allSummaries = await MillDailySummary.find({}).select('date name createdAt').limit(10);
+    console.log('All summaries in database:');
+    allSummaries.forEach((summary, index) => {
+      const summaryDateString = new Date(summary.date).toISOString().split('T')[0];
+      console.log(`  ${index + 1}. ${summary.name} - Date: ${summary.date} (${summaryDateString}) - Created: ${summary.createdAt}`);
+      if (summaryDateString === dateString) {
+        console.log(`    ⚠️  MATCH FOUND! This summary matches the requested date`);
+      }
+    });
+
+    // Determine which method found a match
+    const existingSummary = directMatch || dateObjMatch || rangeMatch;
+
+    console.log('=== FINAL RESULT ===');
+    console.log('Found existing summary:', existingSummary ? 'YES' : 'NO');
+
     if (existingSummary) {
-      return res.status(400).json({ 
-        message: 'Daily summary already exists for this date' 
+      console.log('Existing summary details:', {
+        id: existingSummary._id,
+        date: existingSummary.date,
+        name: existingSummary.name,
+        createdAt: existingSummary.createdAt
+      });
+
+      console.log('Match found by:');
+      if (directMatch) console.log('  - Direct date comparison');
+      if (dateObjMatch) console.log('  - Date object comparison');
+      if (rangeMatch) console.log('  - Date range comparison');
+
+      return res.status(400).json({
+        message: 'Daily summary already exists for this date',
+        requestedDate: date,
+        requestedDateParsed: dateObj.toISOString(),
+        existingSummary: {
+          id: existingSummary._id,
+          date: existingSummary.date,
+          name: existingSummary.name,
+          createdAt: existingSummary.createdAt
+        },
+        debugInfo: {
+          directMatch: !!directMatch,
+          dateObjMatch: !!dateObjMatch,
+          rangeMatch: !!rangeMatch,
+          totalSummariesInDB: allSummaries.length
+        }
       });
     }
+
+    console.log('✅ No existing summary found, proceeding with creation...');
 
     // Validate finished product inventory item is provided
     if (!finishedProduct || !finishedProduct.inventoryItemId) {
@@ -90,6 +178,33 @@ const createDailySummary = async (req, res) => {
       return res.status(400).json({
         message: 'At least one dimension with bundles and quantity must be specified'
       });
+    }
+
+    // Validate each dimension has required fields
+    for (let i = 0; i < finishedProduct.dimensions.length; i++) {
+      const dim = finishedProduct.dimensions[i];
+      console.log(`Validating dimension ${i + 1}:`, JSON.stringify(dim, null, 2));
+
+      if (!dim.dimension || dim.dimension.trim() === '') {
+        return res.status(400).json({
+          message: `Dimension ${i + 1} is missing the 'dimension' field`,
+          receivedDimension: dim
+        });
+      }
+
+      if (typeof dim.bundles !== 'number' || dim.bundles < 0) {
+        return res.status(400).json({
+          message: `Dimension ${i + 1} has invalid bundles value`,
+          receivedDimension: dim
+        });
+      }
+
+      if (typeof dim.quantity !== 'number' || dim.quantity < 0) {
+        return res.status(400).json({
+          message: `Dimension ${i + 1} has invalid quantity value`,
+          receivedDimension: dim
+        });
+      }
     }
 
     // Validate that finished product exists
@@ -121,10 +236,13 @@ const createDailySummary = async (req, res) => {
     const processedWasteMaterials = await processWasteMaterials(wasteMaterials || [], req.user._id);
 
     // Create the mill daily summary
-    const summary = new MillDailySummary({
+    console.log('Creating MillDailySummary with data:');
+    console.log('- finishedProduct.dimensions:', JSON.stringify(finishedProduct.dimensions, null, 2));
+
+    const summaryData = {
       date,
       name: finishedProductItem.name, // Use name from inventory item
-      dimensions: Array.isArray(finishedProductItem.dimensions) 
+      dimensions: Array.isArray(finishedProductItem.dimensions)
         ? finishedProductItem.dimensions.map(d => d.dimension).join(', ')
         : finishedProductItem.dimensions || '', // Convert array to string
       rawMaterials: materialValidation.processedMaterials,
@@ -140,9 +258,31 @@ const createDailySummary = async (req, res) => {
       productionHours,
       efficiency,
       remarks
-    });
+    };
 
-    await summary.save();
+    console.log('Summary data to be saved:', JSON.stringify(summaryData, null, 2));
+
+    const summary = new MillDailySummary(summaryData);
+
+    try {
+      await summary.save();
+      console.log('✅ MillDailySummary saved successfully');
+    } catch (saveError) {
+      console.error('❌ Error saving MillDailySummary:', saveError);
+      console.error('Validation errors:', saveError.errors);
+
+      // Return detailed validation error
+      if (saveError.name === 'ValidationError') {
+        const validationErrors = Object.values(saveError.errors).map(err => err.message);
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors: validationErrors,
+          details: saveError.errors
+        });
+      }
+
+      throw saveError; // Re-throw if it's not a validation error
+    }
 
     // Process inventory changes
     await processInventoryChanges(
@@ -170,22 +310,22 @@ const createDailySummary = async (req, res) => {
   } catch (error) {
     console.error('Create daily summary error:', error);
     console.error('Error stack:', error.stack);
-    
+
     if (error.code === 11000) {
-      return res.status(400).json({ 
-        message: 'Daily summary already exists for this date' 
+      return res.status(400).json({
+        message: 'Daily summary already exists for this date'
       });
     }
-    
+
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: validationErrors 
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: validationErrors
       });
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       message: 'Server error creating daily summary',
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
@@ -263,22 +403,22 @@ const validateRawMaterials = async (rawMaterials) => {
 // Process waste materials - create inventory items if they don't exist
 const processWasteMaterials = async (wasteMaterials, userId) => {
   const processedWaste = [];
-  
+
   try {
     console.log('Processing waste materials:', wasteMaterials);
-    
+
     for (const waste of wasteMaterials) {
       if (!waste.materialName || !waste.quantity) {
         console.log('Skipping waste material with missing data:', waste);
         continue;
       }
-      
+
       // Check if waste material already exists in inventory
       let wasteItem = await Inventory.findOne({
         name: waste.materialName,
         type: 'waste_material'
       });
-      
+
       if (!wasteItem) {
         console.log('Creating new waste material:', waste.materialName);
         // Create new waste material inventory item
@@ -302,14 +442,14 @@ const processWasteMaterials = async (wasteMaterials, userId) => {
         wasteItem.lastUpdatedBy = userId;
         await wasteItem.save();
       }
-      
+
       processedWaste.push({
         materialName: waste.materialName,
         quantity: waste.quantity,
         unit: 'mt'
       });
     }
-    
+
     console.log('Processed waste materials:', processedWaste);
     return processedWaste;
   } catch (error) {
@@ -325,7 +465,7 @@ const processInventoryChanges = async (rawMaterials, finishedProductItem, dimens
     console.log('Raw materials:', rawMaterials);
     console.log('Finished product item:', finishedProductItem.name);
     console.log('Dimensions to add:', dimensions);
-    
+
     // Consume raw materials
     for (const material of rawMaterials) {
       console.log('Processing raw material:', material.materialName);
@@ -349,12 +489,12 @@ const processInventoryChanges = async (rawMaterials, finishedProductItem, dimens
     console.log('Updating finished product dimensions...');
     for (const dim of dimensions) {
       console.log('Processing dimension:', dim.dimension, 'quantity:', dim.quantity, 'bundles:', dim.bundles);
-      
+
       // Find the specific dimension in the inventory item
       const dimensionIndex = finishedProductItem.dimensions.findIndex(
         d => d.dimension === dim.dimension
       );
-      
+
       if (dimensionIndex !== -1) {
         console.log('Found existing dimension at index:', dimensionIndex);
         // Update existing dimension
@@ -384,12 +524,23 @@ const processInventoryChanges = async (rawMaterials, finishedProductItem, dimens
     finishedProductItem.availableQuantity = finishedProductItem.dimensions.reduce(
       (total, dim) => total + dim.availableQuantity, 0
     );
-    
+
     finishedProductItem.lastUpdatedBy = userId;
     await finishedProductItem.save();
 
     // Check if this production fulfills any blocked orders
     await checkAndFulfillBlockedOrders(finishedProductItem);
+
+    // Update order availability after production updates inventory
+    for (const dim of dimensions) {
+      const dimensionIndex = finishedProductItem.dimensions.findIndex(
+        d => d.dimension === dim.dimension
+      );
+      if (dimensionIndex !== -1) {
+        const dimensionId = finishedProductItem.dimensions[dimensionIndex]._id;
+        await updateOrdersAvailabilityAfterInventoryChange(finishedProductItem._id, dimensionId, userId);
+      }
+    }
 
   } catch (error) {
     console.error('Error processing inventory changes:', error);
@@ -399,6 +550,113 @@ const processInventoryChanges = async (rawMaterials, finishedProductItem, dimens
 
 
 
+// Delete daily summary (for testing/debugging only)
+const deleteDailySummary = async (req, res) => {
+  try {
+    const { date } = req.params;
+
+    console.log('Attempting to delete daily summary for date:', date);
+
+    const dateObj = new Date(date);
+    const startOfDay = new Date(dateObj);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(dateObj);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const deletedSummary = await MillDailySummary.findOneAndDelete({
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    if (deletedSummary) {
+      console.log('Deleted summary:', deletedSummary._id);
+      res.json({
+        message: 'Daily summary deleted successfully',
+        deletedSummary: {
+          id: deletedSummary._id,
+          date: deletedSummary.date,
+          name: deletedSummary.name
+        }
+      });
+    } else {
+      res.status(404).json({
+        message: 'No daily summary found for this date',
+        searchDate: date,
+        searchRange: { start: startOfDay, end: endOfDay }
+      });
+    }
+  } catch (error) {
+    console.error('Delete daily summary error:', error);
+    res.status(500).json({
+      message: 'Error deleting daily summary',
+      error: error.message
+    });
+  }
+};
+
+// Debug endpoint to check existing daily summaries
+const debugDailySummaries = async (req, res) => {
+  try {
+    const { date } = req.query;
+
+    if (date) {
+      // Check specific date
+      console.log('Checking summaries for date:', date);
+
+      const dateObj = new Date(date);
+      const startOfDay = new Date(dateObj);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(dateObj);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const summaries = await MillDailySummary.find({
+        date: {
+          $gte: startOfDay,
+          $lte: endOfDay
+        }
+      }).sort({ createdAt: -1 });
+
+      res.json({
+        message: `Found ${summaries.length} summaries for ${date}`,
+        searchDate: date,
+        searchRange: { start: startOfDay, end: endOfDay },
+        summaries: summaries.map(s => ({
+          id: s._id,
+          date: s.date,
+          name: s.name,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt
+        }))
+      });
+    } else {
+      // Get all summaries
+      const summaries = await MillDailySummary.find({})
+        .sort({ date: -1 })
+        .limit(10)
+        .select('_id date name createdAt updatedAt');
+
+      res.json({
+        message: `Found ${summaries.length} recent summaries`,
+        summaries: summaries.map(s => ({
+          id: s._id,
+          date: s.date,
+          name: s.name,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt
+        }))
+      });
+    }
+  } catch (error) {
+    console.error('Debug daily summaries error:', error);
+    res.status(500).json({
+      message: 'Error checking daily summaries',
+      error: error.message
+    });
+  }
+};
+
 // Get available raw materials for mill production
 const getAvailableRawMaterials = async (req, res) => {
   try {
@@ -407,8 +665,8 @@ const getAvailableRawMaterials = async (req, res) => {
       // Exclude system-generated needed items
       sku: { $not: { $regex: '^NEEDED-', $options: 'i' } }
     })
-    .select('_id name dimensions sku quantity availableQuantity unit status type')
-    .sort({ name: 1 });
+      .select('_id name dimensions sku quantity availableQuantity unit status type')
+      .sort({ name: 1 });
 
     res.json({
       message: 'Raw materials retrieved',
@@ -429,8 +687,8 @@ const getAvailableFinishedProducts = async (req, res) => {
       // Exclude system-generated needed items
       sku: { $not: { $regex: '^NEEDED-', $options: 'i' } }
     })
-    .select('_id name dimensions sku quantity availableQuantity unit status type')
-    .sort({ name: 1 });
+      .select('_id name dimensions sku quantity availableQuantity unit status type')
+      .sort({ name: 1 });
 
     res.json({
       message: 'Finished products retrieved',
@@ -482,13 +740,13 @@ const stockTake = async (req, res) => {
 const getHourlyReports = async (req, res) => {
   try {
     const { date, shift, page = 1, perPage = 50 } = req.query;
-    
+
     let filter = {};
-    
+
     if (date) {
       filter.date = date;
     }
-    
+
     if (shift) {
       filter.shift = shift;
     }
@@ -563,6 +821,8 @@ const getDailySummaries = async (req, res) => {
 module.exports = {
   createHourlyReport,
   createDailySummary,
+  deleteDailySummary,
+  debugDailySummaries,
   getAvailableRawMaterials,
   getAvailableFinishedProducts,
   stockTake,

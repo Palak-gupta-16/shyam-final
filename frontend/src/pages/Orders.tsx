@@ -650,12 +650,41 @@ const CreateOrderModal: React.FC<{
     try {
       setLoading(true);
       
-      // Validate that all products have inventory items selected
-      const validProducts = formData.products.filter((p) => p.inventoryItemId && p.quantity > 0);
-      const invalidProducts = formData.products.filter((p) => !p.inventoryItemId && p.quantity > 0);
+      // Debug: Log the form data to see what we're working with
+      console.log('Form data products:', JSON.stringify(formData.products, null, 2));
       
-      if (invalidProducts.length > 0) {
-        alert('Please select inventory items for all products before creating the order.');
+      // Detailed validation with better error messages
+      const validationErrors: string[] = [];
+      const validProducts: any[] = [];
+      
+      formData.products.forEach((product: any, index: number) => {
+        const errors: string[] = [];
+        
+        if (!product.inventoryItemId || product.inventoryItemId.trim() === '') {
+          errors.push('No product selected');
+        }
+        
+        if (!product.quantity || product.quantity <= 0) {
+          errors.push('Quantity must be greater than 0');
+        }
+        
+        if (formData.type === 'dispatch' && product.inventoryItem?.type === 'finished_product') {
+          if (!product.dimensionId || product.dimensionId.trim() === '') {
+            errors.push('Dimension must be selected for finished products');
+          }
+        }
+        
+        if (errors.length > 0) {
+          validationErrors.push(`Product ${index + 1}: ${errors.join(', ')}`);
+        } else {
+          validProducts.push(product);
+        }
+      });
+      
+      console.log(`Valid products: ${validProducts.length}, Validation errors: ${validationErrors.length}`);
+      
+      if (validationErrors.length > 0) {
+        alert(`Please fix the following issues:\n\n${validationErrors.join('\n')}`);
         setLoading(false);
         return;
       }
@@ -666,10 +695,21 @@ const CreateOrderModal: React.FC<{
         return;
       }
       
+      // Clean up the products data to only send necessary fields
+      const cleanProducts = validProducts.map((product: any) => ({
+        inventoryItemId: product.inventoryItemId,
+        dimensionId: product.dimensionId || null,
+        name: product.name,
+        dimensions: product.dimensions || '',
+        quantity: product.quantity,
+        unit: product.unit || '',
+        customDimension: product.customDimension || ''
+      }));
+
       const processedData: any = {
         type: formData.type,
         customerOrSupplier: formData.customerOrSupplier,
-        products: validProducts,
+        products: cleanProducts,
       };
 
       // Only include vehicle data for purchase orders
@@ -680,12 +720,35 @@ const CreateOrderModal: React.FC<{
           driverNumber: formData.vehicle.driverNumber,
         };
       }
+      
+      console.log('Sending order data:', JSON.stringify(processedData, null, 2));
       await ordersAPI.createOrder(processedData);
       onSuccess();
       resetForm();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating order:', error);
-      alert('Failed to create order. Please try again.');
+      console.error('Error response:', error.response?.data);
+      
+      let errorMessage = 'Failed to create order. Please try again.';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+        
+        // If it's a validation error, show the specific field errors
+        if (error.response.data.errors && Array.isArray(error.response.data.errors)) {
+          const fieldErrors = error.response.data.errors.map((err: any) => 
+            `${err.field}: ${err.message}`
+          ).join('\n');
+          errorMessage += '\n\nValidation errors:\n' + fieldErrors;
+        }
+      }
+      
+      alert(`Error: ${errorMessage}`);
+      
+      // Additional debugging info
+      if (error.response?.data) {
+        console.log('Backend error details:', JSON.stringify(error.response.data, null, 2));
+      }
     } finally {
       setLoading(false);
     }
@@ -703,8 +766,39 @@ const CreateOrderModal: React.FC<{
     try {
       setLoading(true);
       
-      // Validate that all products have inventory items selected
-      const validProducts = formData.products.filter((p) => p.inventoryItemId && p.quantity > 0);
+      // Use the same detailed validation as handleSubmit
+      const validationErrors: string[] = [];
+      const validProducts: any[] = [];
+      
+      formData.products.forEach((product: any, index: number) => {
+        const errors: string[] = [];
+        
+        if (!product.inventoryItemId || product.inventoryItemId.trim() === '') {
+          errors.push('No product selected');
+        }
+        
+        if (!product.quantity || product.quantity <= 0) {
+          errors.push('Quantity must be greater than 0');
+        }
+        
+        if (product.inventoryItem?.type === 'finished_product') {
+          if (!product.dimensionId || product.dimensionId.trim() === '') {
+            errors.push('Dimension must be selected for finished products');
+          }
+        }
+        
+        if (errors.length > 0) {
+          validationErrors.push(`Product ${index + 1}: ${errors.join(', ')}`);
+        } else {
+          validProducts.push(product);
+        }
+      });
+      
+      if (validationErrors.length > 0) {
+        alert(`Please fix the following issues:\n\n${validationErrors.join('\n')}`);
+        setLoading(false);
+        return;
+      }
       
       if (validProducts.length === 0) {
         alert('Please add at least one product with a valid inventory item and quantity.');
@@ -712,12 +806,25 @@ const CreateOrderModal: React.FC<{
         return;
       }
       
+      // Clean up the products data to only send necessary fields
+      const cleanProducts = validProducts.map((product: any) => ({
+        inventoryItemId: product.inventoryItemId,
+        dimensionId: product.dimensionId || null,
+        name: product.name,
+        dimensions: product.dimensions || '',
+        quantity: product.quantity,
+        unit: product.unit || '',
+        customDimension: product.customDimension || ''
+      }));
+
       const processedData: any = {
         type: formData.type,
         customerOrSupplier: formData.customerOrSupplier,
-        products: validProducts,
+        products: cleanProducts,
       };
 
+      console.log('Sending dispatch order data:', JSON.stringify(processedData, null, 2));
+      
       // Create order first
       const orderResponse = await ordersAPI.createOrder(processedData);
       
@@ -730,9 +837,30 @@ const CreateOrderModal: React.FC<{
       
       onSuccess();
       resetForm();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error dispatching order:', error);
-      alert('Failed to dispatch order. Please check availability and try again.');
+      console.error('Error response:', error.response?.data);
+      
+      let errorMessage = 'Failed to dispatch order. Please check availability and try again.';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+        
+        // If it's a validation error, show the specific field errors
+        if (error.response.data.errors && Array.isArray(error.response.data.errors)) {
+          const fieldErrors = error.response.data.errors.map((err: any) => 
+            `${err.field}: ${err.message}`
+          ).join('\n');
+          errorMessage += '\n\nValidation errors:\n' + fieldErrors;
+        }
+      }
+      
+      alert(`Error: ${errorMessage}`);
+      
+      // Additional debugging info
+      if (error.response?.data) {
+        console.log('Backend error details:', JSON.stringify(error.response.data, null, 2));
+      }
     } finally {
       setLoading(false);
     }
@@ -918,6 +1046,19 @@ const CreateOrderModal: React.FC<{
               <strong>Note:</strong> For dispatch orders, you only need to provide product details initially. 
               Vehicle information will be required when you click the "Dispatch" button after checking availability.
             </p>
+          </div>
+        )}
+
+        {/* Debug Info - Remove in production */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mb-4 p-3 bg-gray-100 rounded-lg text-xs">
+            <strong>Debug Info:</strong>
+            <div>Products count: {formData.products.length}</div>
+            {formData.products.map((p, i) => (
+              <div key={i}>
+                Product {i + 1}: ID={p.inventoryItemId || 'none'}, Qty={p.quantity}, Dim={p.dimensionId || 'none'}
+              </div>
+            ))}
           </div>
         )}
 

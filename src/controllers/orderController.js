@@ -2,27 +2,241 @@ const { Order, Inventory, NeededItem } = require('../models');
 const { getNextSequence } = require('../utils/counter');
 const { canTransition, getInitialState } = require('../utils/stateMachine');
 
+// Function to update order availability when inventory changes
+const updateOrdersAvailabilityAfterInventoryChange = async (inventoryItemId, dimensionId = null, userId) => {
+  try {
+    console.log(`Updating order availability after inventory change for item: ${inventoryItemId}, dimension: ${dimensionId}`);
+    
+    // Find all draft dispatch orders that use this inventory item
+    let filter = {
+      type: 'dispatch',
+      status: 'draft',
+      'products.inventoryItemId': inventoryItemId
+    };
+    
+    if (dimensionId) {
+      filter['products.dimensionId'] = dimensionId;
+    }
+    
+    const affectedOrders = await Order.find(filter).populate('products.inventoryItemId');
+    
+    console.log(`Found ${affectedOrders.length} orders to check for availability updates`);
+    
+    for (const order of affectedOrders) {
+      const { canDispatch, availabilityResults, neededItems } = await checkOrderAvailability(order);
+      
+      // Update order if availability status changed
+      if (order.canDispatch !== canDispatch) {
+        order.canDispatch = canDispatch;
+        
+        order.history.push({
+          by: userId,
+          from: order.status,
+          to: order.status,
+          note: canDispatch 
+            ? 'Order availability updated - now ready for dispatch' 
+            : 'Order availability updated - items needed',
+          at: new Date()
+        });
+        
+        await order.save();
+        console.log(`Updated order ${order.orderNumber} availability: ${canDispatch}`);
+      }
+      
+      // Update needed items
+      await updateNeededItemsForOrder(order._id, neededItems, userId);
+    }
+    
+  } catch (error) {
+    console.error('Error updating order availability after inventory change:', error);
+  }
+};
+
+// Function to update needed items for an order
+const updateNeededItemsForOrder = async (orderId, newNeededItems, userId) => {
+  try {
+    // Remove existing needed items for this order
+    await NeededItem.deleteMany({
+      'orderReference.orderId': orderId,
+      status: { $in: ['pending', 'partially_fulfilled'] }
+    });
+    
+    // Create new needed items if any
+    if (newNeededItems && newNeededItems.length > 0) {
+      const order = await Order.findById(orderId);
+      const neededItemRecords = newNeededItems.map(item => ({
+        productName: item.productName,
+        dimensions: item.dimensions,
+        quantityNeeded: item.quantityNeeded,
+        bundlesNeeded: Math.ceil(item.quantityNeeded / 1),
+        inventoryItemId: item.inventoryItemId,
+        dimensionId: item.dimensionId,
+        orderReference: {
+          orderId: order._id,
+          orderNumber: order.orderNumber,
+          customerOrSupplier: order.customerOrSupplier
+        },
+        priority: order.priority || 'medium',
+        createdBy: userId
+      }));
+      
+      await NeededItem.insertMany(neededItemRecords);
+      console.log(`Created ${neededItemRecords.length} needed items for order ${order.orderNumber}`);
+    }
+  } catch (error) {
+    console.error('Error updating needed items for order:', error);
+  }
+};
+
+// Debug endpoint to test order validation without creating
+const debugOrderValidation = async (req, res) => {
+  try {
+    const { type, customerOrSupplier, vehicle, products } = req.body;
+    console.log('Debug order validation:', JSON.stringify(req.body, null, 2));
+
+    const validationResults = {
+      type: type,
+      customerOrSupplier: customerOrSupplier,
+      productsCount: products ? products.length : 0,
+      products: []
+    };
+
+    if (products && products.length > 0) {
+      for (let i = 0; i < products.length; i++) {
+        const product = products[i];
+        const productValidation = {
+          index: i,
+          inventoryItemId: product.inventoryItemId || 'MISSING',
+          dimensionId: product.dimensionId || 'MISSING',
+          quantity: product.quantity || 0,
+          name: product.name || 'MISSING',
+          errors: []
+        };
+
+        // Same validation as createOrder
+        if (!product.inventoryItemId) {
+          productValidation.errors.push('inventoryItemId is required');
+        }
+
+        if (!product.quantity || product.quantity <= 0) {
+          productValidation.errors.push('quantity must be greater than 0');
+        }
+
+        // Check if inventory item exists
+        if (product.inventoryItemId) {
+          try {
+            const inventoryItem = await Inventory.findById(product.inventoryItemId);
+            if (!inventoryItem) {
+              productValidation.errors.push('inventory item not found in database');
+            } else {
+              productValidation.inventoryItemExists = true;
+              productValidation.inventoryItemType = inventoryItem.type;
+              
+              if (inventoryItem.type === 'finished_product' && type === 'dispatch') {
+                if (!product.dimensionId) {
+                  productValidation.errors.push('dimensionId is required for finished products');
+                } else {
+                  const dimension = inventoryItem.dimensions.id(product.dimensionId);
+                  if (!dimension) {
+                    productValidation.errors.push('dimension not found in inventory item');
+                    productValidation.availableDimensions = inventoryItem.dimensions.map(d => ({
+                      id: d._id,
+                      dimension: d.dimension
+                    }));
+                  } else {
+                    productValidation.dimensionExists = true;
+                    productValidation.dimensionInfo = {
+                      dimension: dimension.dimension,
+                      availableQuantity: dimension.availableQuantity
+                    };
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            productValidation.errors.push(`error checking inventory: ${error.message}`);
+          }
+        }
+
+        validationResults.products.push(productValidation);
+      }
+    }
+
+    res.json({
+      message: 'Order validation debug results',
+      validation: validationResults
+    });
+
+  } catch (error) {
+    console.error('Debug order validation error:', error);
+    res.status(500).json({ 
+      message: 'Debug validation error', 
+      error: error.message 
+    });
+  }
+};
+
 // Create new order with new workflow
 const createOrder = async (req, res) => {
   try {
+    console.log('=== CREATE ORDER REQUEST ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Request headers:', req.headers);
+    console.log('Content-Type:', req.headers['content-type']);
+    
     const { type, customerOrSupplier, vehicle, products } = req.body;
-    console.log('Creating order:', req.body);
+    
+    console.log('Destructured values:');
+    console.log('- type:', type);
+    console.log('- customerOrSupplier:', customerOrSupplier);
+    console.log('- vehicle:', vehicle);
+    console.log('- products:', products);
+    console.log('- products type:', typeof products);
+    console.log('- products is array:', Array.isArray(products));
 
     // Generate order number
     const orderNumber = await getNextSequence('orders');
+
+    // Validate products array
+    if (!products || !Array.isArray(products)) {
+      console.log('❌ Products is not an array:', products);
+      return res.status(400).json({ 
+        message: 'Products must be an array',
+        receivedProducts: products,
+        typeOfProducts: typeof products
+      });
+    }
+    
+    if (products.length === 0) {
+      console.log('❌ Products array is empty');
+      return res.status(400).json({ 
+        message: 'At least one product is required',
+        receivedProducts: products
+      });
+    }
 
     // Validate and process products
     const processedProducts = [];
     const neededItems = [];
     let canDispatch = true;
 
-    for (const product of products) {
+    console.log(`Processing ${products.length} products...`);
+    
+    for (let i = 0; i < products.length; i++) {
+      const product = products[i];
+      console.log(`Product ${i + 1}:`, JSON.stringify(product, null, 2));
+      
       // Require inventoryItemId for all orders
       if (!product.inventoryItemId) {
+        console.log(`❌ Product ${i + 1} missing inventoryItemId:`, product);
         return res.status(400).json({ 
-          message: 'All products must have a valid inventory item selected. Please select from existing inventory.' 
+          message: `Product ${i + 1} is missing inventoryItemId. Please select from existing inventory.`,
+          product: product,
+          receivedFields: Object.keys(product)
         });
       }
+      
+      console.log(`✅ Product ${i + 1} has inventoryItemId: ${product.inventoryItemId}`);
 
       const inventoryItem = await Inventory.findById(product.inventoryItemId);
       if (!inventoryItem) {
@@ -51,17 +265,62 @@ const createOrder = async (req, res) => {
       };
 
       if (type === 'dispatch') {
-        // Check stock availability for dispatch orders
+        // Enhanced stock availability check for dispatch orders
         let availableQuantity = 0;
+        let dimensionInfo = null;
         
-        if (inventoryItem.type === 'finished_product' && inventoryItem.dimensions && inventoryItem.dimensions.length > 0 && product.dimensionId) {
-          // For finished products with dimensions, check specific dimension availability
-          const dimension = inventoryItem.dimensions.id(product.dimensionId);
-          availableQuantity = dimension ? dimension.availableQuantity : 0;
+        if (inventoryItem.type === 'finished_product' && inventoryItem.dimensions && inventoryItem.dimensions.length > 0) {
+          console.log(`Processing finished product: ${inventoryItem.name}`);
+          console.log(`Product dimensionId: "${product.dimensionId}" (type: ${typeof product.dimensionId})`);
+          console.log(`Available dimensions:`, inventoryItem.dimensions.map(d => ({ id: d._id.toString(), dimension: d.dimension })));
+          
+          if (product.dimensionId && 
+              product.dimensionId !== null && 
+              product.dimensionId !== undefined && 
+              product.dimensionId.toString().trim() !== '' && 
+              product.dimensionId.toString() !== 'null' && 
+              product.dimensionId.toString() !== 'undefined') {
+            // For finished products with specific dimension
+            let dimension = inventoryItem.dimensions.id(product.dimensionId);
+            
+            // If not found with .id(), try manual search (in case of string/ObjectId mismatch)
+            if (!dimension) {
+              dimension = inventoryItem.dimensions.find(d => 
+                d._id.toString() === product.dimensionId.toString()
+              );
+            }
+            
+            console.log(`Found dimension:`, dimension ? { id: dimension._id, name: dimension.dimension } : 'NOT FOUND');
+            
+            if (dimension) {
+              availableQuantity = dimension.availableQuantity || 0;
+              dimensionInfo = {
+                dimension: dimension.dimension,
+                sku: dimension.sku,
+                totalQuantity: dimension.quantity,
+                reservedQuantity: dimension.reservedQuantity,
+                availableQuantity: dimension.availableQuantity
+              };
+            } else {
+              return res.status(400).json({ 
+                message: `Selected dimension not found for product: ${inventoryItem.name}. Available dimensions: ${inventoryItem.dimensions.map(d => d.dimension).join(', ')}` 
+              });
+            }
+          } else {
+            console.log(`No dimensionId provided for finished product: ${inventoryItem.name}`);
+          console.log(`Product object:`, JSON.stringify(product, null, 2));
+            return res.status(400).json({ 
+              message: `Dimension must be selected for finished product: ${inventoryItem.name}. Available dimensions: ${inventoryItem.dimensions.map(d => d.dimension).join(', ')}`,
+              availableDimensions: inventoryItem.dimensions.map(d => ({ id: d._id, dimension: d.dimension })),
+              receivedDimensionId: product.dimensionId
+            });
+          }
         } else {
           // For raw materials and simple inventory
           availableQuantity = inventoryItem.availableQuantity || 0;
         }
+        
+        console.log(`Checking availability for ${inventoryItem.name}: ${availableQuantity}/${product.quantity}`);
         
         if (availableQuantity < product.quantity) {
           canDispatch = false;
@@ -69,12 +328,26 @@ const createOrder = async (req, res) => {
           
           neededItems.push({
             productName: inventoryItem.name,
-            dimensions: product.dimensions || '',
+            dimensions: product.dimensions || (dimensionInfo ? dimensionInfo.dimension : ''),
             quantityNeeded: shortfall,
+            availableQuantity: availableQuantity,
+            requestedQuantity: product.quantity,
             inventoryItemId: inventoryItem._id,
-            dimensionId: product.dimensionId
+            dimensionId: product.dimensionId,
+            dimensionInfo: dimensionInfo
           });
+          
+          console.log(`Shortfall detected: ${shortfall} units needed for ${inventoryItem.name}`);
         }
+        
+        // Store availability info in the product for later reference
+        processedProduct.availabilityInfo = {
+          availableQuantity,
+          requestedQuantity: product.quantity,
+          isAvailable: availableQuantity >= product.quantity,
+          shortfall: availableQuantity < product.quantity ? product.quantity - availableQuantity : 0,
+          dimensionInfo
+        };
       }
 
       processedProducts.push(processedProduct);
@@ -1395,6 +1668,7 @@ const exitOrder = async (req, res) => {
 };
 
 module.exports = {
+  debugOrderValidation,
   createOrder,
   checkProductAvailability,
   approveDispatch,
@@ -1415,5 +1689,7 @@ module.exports = {
   recordFinalWeight,
   generateInvoice,
   moveToGate,
-  exitOrder
+  exitOrder,
+  updateOrdersAvailabilityAfterInventoryChange,
+  updateNeededItemsForOrder
 };
