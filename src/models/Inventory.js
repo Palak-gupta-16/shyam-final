@@ -10,7 +10,7 @@ const inventorySchema = new mongoose.Schema({
   type: {
     type: String,
     required: true,
-    enum: ['finished_product', 'raw_material', 'store_item'],
+    enum: ['finished_product', 'raw_material', 'store_item', 'waste_material'],
   },
   status: {
     type: String,

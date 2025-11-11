@@ -3,8 +3,12 @@ import { ChevronDown, Package, AlertTriangle, CheckCircle } from 'lucide-react';
 import { InventoryItem } from '../../types';
 import { inventoryAPI } from '../../services/api';
 
+type InventoryTypeOption = 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
+
 interface InventoryDropdownProps {
-  type: 'finished_product' | 'raw_material' | 'store_item';
+  type?: InventoryTypeOption;
+  types?: InventoryTypeOption[];
+  excludeIds?: string[];
   value: string | null;
   onChange: (item: InventoryItem | null) => void;
   placeholder?: string;
@@ -17,6 +21,8 @@ interface InventoryDropdownProps {
 
 const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
   type,
+  types,
+  excludeIds = [],
   value,
   onChange,
   placeholder = 'Select item...',
@@ -35,13 +41,31 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
 
   useEffect(() => {
     fetchItems();
-  }, [type, availableOnly]);
+  }, [type, JSON.stringify(types ?? []), availableOnly]);
 
   const fetchItems = async () => {
     try {
       setLoading(true);
-      const data = await inventoryAPI.getInventoryByType(type, availableOnly);
-      setItems(data);
+      const typeList = types && types.length > 0 ? types : type ? [type] : [];
+
+      if (typeList.length === 0) {
+        setItems([]);
+        return;
+      }
+
+      const responses = await Promise.all(
+        typeList.map((inventoryType) => inventoryAPI.getInventoryByType(inventoryType, availableOnly))
+      );
+
+      const merged = new Map<string, InventoryItem>();
+      responses.forEach((list) => {
+        list.forEach((item) => {
+          merged.set(item._id, item);
+        });
+      });
+
+      const fetchedItems = Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name));
+      setItems(fetchedItems);
     } catch (error) {
       console.error('Error fetching inventory items:', error);
       setItems([]);
@@ -54,7 +78,7 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (item.dimensions && item.dimensions.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  ).filter(item => !(excludeIds || []).includes(item._id));
 
   const getStockIcon = (item: InventoryItem) => {
     if (item.status === 'out_of_stock' || item.availableQuantity === 0) {
@@ -161,7 +185,7 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
                   key={item._id}
                   type="button"
                   onClick={() => handleSelect(item)}
-                  disabled={availableOnly && (item.availableQuantity ?? item.quantity) <= 0}
+                  disabled={(excludeIds || []).includes(item._id) || (availableOnly && (item.availableQuantity ?? item.quantity) <= 0)}
                   className={`
                     w-full px-4 py-3 text-left hover:bg-gray-50 focus:outline-none focus:bg-gray-50
                     border-b border-gray-100 last:border-b-0

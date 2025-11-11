@@ -8,7 +8,8 @@ import {
   TrendingDown,
   Boxes,
   Factory,
-  Store
+  Store,
+  Trash2
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
@@ -36,6 +37,7 @@ const Inventory: React.FC = () => {
     { value: 'finished_product', label: 'Finished Products', icon: Boxes },
     { value: 'raw_material', label: 'Raw Materials', icon: Factory },
     { value: 'store_item', label: 'Store Items', icon: Store },
+    { value: 'waste_material', label: 'Waste / Scrap', icon: Trash2 },
   ];
 
   const inventoryStatuses = [
@@ -368,7 +370,7 @@ const AddItemModal: React.FC<{
 }> = ({ isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState<{
     sku: string;
-    type: 'finished_product' | 'raw_material' | 'store_item';
+    type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
     status: 'available' | 'needed' | 'low_stock' | 'out_of_stock';
     name: string;
     dimensions: string;
@@ -420,12 +422,13 @@ const AddItemModal: React.FC<{
             <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
             <select
               value={formData.type}
-              onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as 'finished_product' | 'raw_material' | 'store_item' }))}
+              onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as 'finished_product' | 'raw_material' | 'store_item' | 'waste_material' }))}
               className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="finished_product">Finished Product</option>
               <option value="raw_material">Raw Material</option>
               <option value="store_item">Store Item</option>
+              <option value="waste_material">Waste / Scrap</option>
             </select>
           </div>
           <div>

@@ -13,10 +13,10 @@ const createInventorySchema = Joi.object({
     }),
   
   type: Joi.string()
-    .valid('finished_product', 'raw_material', 'store_item')
+    .valid('finished_product', 'raw_material', 'store_item', 'waste_material')
     .required()
     .messages({
-      'any.only': 'Type must be one of: finished_product, raw_material, store_item',
+      'any.only': 'Type must be one of: finished_product, raw_material, store_item, waste_material',
       'string.empty': 'Type is required'
     }),
   

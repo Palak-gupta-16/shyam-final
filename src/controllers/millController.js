@@ -58,6 +58,7 @@ const createDailySummary = async (req, res) => {
     const { 
       date, 
       rawMaterials, 
+      wasteMaterials,
       finishedProduct,
       billetSize, 
       totalPieces, 
@@ -99,6 +100,16 @@ const createDailySummary = async (req, res) => {
       });
     }
 
+    // Prevent selecting the same inventory item for finished product and waste
+    if (wasteMaterials && Array.isArray(wasteMaterials)) {
+      const conflict = wasteMaterials.some(w => w && w.inventoryItemId && String(w.inventoryItemId) === String(finishedProductItem._id));
+      if (conflict) {
+        return res.status(400).json({
+          message: 'Waste material cannot be the same inventory item as the finished product. Please select a different inventory item for waste.'
+        });
+      }
+    }
+
     // Validate raw materials availability
     const materialValidation = await validateRawMaterials(rawMaterials);
     if (!materialValidation.valid) {
@@ -106,6 +117,14 @@ const createDailySummary = async (req, res) => {
         message: 'Insufficient raw materials for production',
         errors: materialValidation.errors,
         missingMaterials: materialValidation.missingMaterials
+      });
+    }
+
+  const wasteValidation = await validateWasteMaterials(wasteMaterials, req.user._id);
+    if (!wasteValidation.valid) {
+      return res.status(400).json({
+        message: 'Waste material validation failed',
+        errors: wasteValidation.errors
       });
     }
 
@@ -117,8 +136,10 @@ const createDailySummary = async (req, res) => {
       billetSize,
       rawMaterials: materialValidation.processedMaterials,
       finishedProduct: {
-        inventoryItemId: finishedProductItem._id
+        inventoryItemId: finishedProductItem._id,
+        quantityProduced: totalWeight
       },
+      wasteMaterials: wasteValidation.processedMaterials,
       totalPieces,
       totalWeight,
       breakdownSummary,
@@ -136,6 +157,7 @@ const createDailySummary = async (req, res) => {
       materialValidation.processedMaterials,
       finishedProductItem,
       totalWeight,
+      wasteValidation.processedMaterials,
       req.user._id
     );
 
@@ -143,13 +165,26 @@ const createDailySummary = async (req, res) => {
     await summary.populate('createdBy', 'name alias role');
     await summary.populate('rawMaterials.inventoryItemId', 'name sku availableQuantity');
     await summary.populate('finishedProduct.inventoryItemId', 'name sku quantity');
+    await summary.populate('wasteMaterials.inventoryItemId', 'name sku quantity');
 
     res.status(201).json({
       message: 'Daily summary created successfully',
       summary,
       inventoryUpdates: {
         rawMaterialsConsumed: materialValidation.processedMaterials.length,
-        finishedProductAdded: totalWeight
+        rawMaterialsBreakdown: materialValidation.processedMaterials.map(({ materialName, quantityUsed, unit }) => ({
+          materialName,
+          quantityUsed,
+          unit
+        })),
+        finishedProductAdded: totalWeight,
+        finishedProductDetails: {
+          materialName: finishedProductItem.name,
+          quantityProduced: totalWeight,
+          unit: finishedProductItem.unit
+        },
+        wasteMaterialsAdded: wasteValidation.processedMaterials.reduce((sum, waste) => sum + waste.quantityProduced, 0),
+        wasteMaterialsBreakdown: wasteValidation.processedMaterials
       }
     });
 
@@ -248,8 +283,169 @@ const validateRawMaterials = async (rawMaterials) => {
   return validationResult;
 };
 
+// Validate waste material inputs and ensure waste inventory records exist
+const validateWasteMaterials = async (wasteMaterials = [], userId) => {
+  const validationResult = {
+    valid: true,
+    errors: [],
+    processedMaterials: []
+  };
+
+  if (!Array.isArray(wasteMaterials) || wasteMaterials.length === 0) {
+    return validationResult;
+  }
+
+  const wasteCache = new Map();
+
+  const sanitizeSkuComponent = (value) => {
+    if (!value) return 'AUTO';
+    return value.toString().replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16) || 'AUTO';
+  };
+
+  const ensureUniqueSku = async (baseSku) => {
+    let finalSku = baseSku;
+    let counter = 1;
+
+    while (await Inventory.exists({ sku: finalSku })) {
+      finalSku = `${baseSku}-${counter}`;
+      counter += 1;
+    }
+
+    return finalSku;
+  };
+
+  const getWasteCacheKey = (baseItem, materialName) => {
+    if (baseItem) {
+      return `raw:${baseItem._id.toString()}`;
+    }
+    return `name:${(materialName || '').trim().toLowerCase()}`;
+  };
+
+  const ensureWasteInventoryItem = async ({ baseItem, materialName, unit }) => {
+    const cacheKey = getWasteCacheKey(baseItem, materialName);
+    if (wasteCache.has(cacheKey)) {
+      return wasteCache.get(cacheKey);
+    }
+
+    let wasteItem = null;
+
+    if (baseItem && baseItem.type === 'waste_material') {
+      wasteItem = baseItem;
+    } else if (baseItem && baseItem.type === 'raw_material') {
+      const skuBase = `WASTE-${sanitizeSkuComponent(baseItem.sku || baseItem._id)}`;
+      const wasteName = `Waste - ${baseItem.name}`;
+
+      wasteItem = await Inventory.findOne({ sku: skuBase });
+      if (!wasteItem) {
+        wasteItem = await Inventory.findOne({ type: 'waste_material', name: wasteName });
+      }
+
+      if (!wasteItem) {
+        const uniqueSku = await ensureUniqueSku(skuBase);
+        wasteItem = new Inventory({
+          sku: uniqueSku,
+          type: 'waste_material',
+          name: wasteName,
+          dimensions: baseItem.dimensions,
+          length: baseItem.length,
+          quantity: 0,
+          unit: unit || baseItem.unit || 'kg',
+          location: baseItem.location,
+          description: `Waste generated from ${baseItem.name}`,
+          minimumStock: 0,
+          maxStock: 0,
+          lastUpdatedBy: userId
+        });
+        await wasteItem.save();
+      }
+    } else {
+      const normalizedName = (materialName || 'General Waste').trim();
+      const wasteName = normalizedName.toLowerCase().includes('waste') ? normalizedName : `Waste - ${normalizedName}`;
+      const skuBase = `WASTE-${sanitizeSkuComponent(normalizedName)}`;
+
+      wasteItem = await Inventory.findOne({ type: 'waste_material', name: wasteName });
+      if (!wasteItem) {
+        const uniqueSku = await ensureUniqueSku(skuBase);
+        wasteItem = new Inventory({
+          sku: uniqueSku,
+          type: 'waste_material',
+          name: wasteName,
+          quantity: 0,
+          unit: unit || 'kg',
+          description: 'Auto-generated waste inventory item',
+          minimumStock: 0,
+          maxStock: 0,
+          lastUpdatedBy: userId
+        });
+        await wasteItem.save();
+      }
+    }
+
+    if (wasteItem) {
+      wasteCache.set(cacheKey, wasteItem);
+    }
+
+    return wasteItem;
+  };
+
+  for (let index = 0; index < wasteMaterials.length; index += 1) {
+    const material = wasteMaterials[index];
+    if (!material) {
+      continue;
+    }
+
+  const hasSelection = Boolean(material.inventoryItemId);
+  const hasName = Boolean(material.materialName && material.materialName.trim().length > 0);
+  const quantityProduced = Number(material.quantityProduced);
+  const hasQuantity = Number.isFinite(quantityProduced) && quantityProduced > 0;
+
+    if (!hasSelection && !hasName && !hasQuantity) {
+      continue;
+    }
+
+    if (!hasQuantity) {
+      validationResult.valid = false;
+      validationResult.errors.push(`Waste material ${index + 1}: quantity must be greater than 0`);
+      continue;
+    }
+
+    if (!hasSelection && !hasName) {
+      validationResult.valid = false;
+      validationResult.errors.push(`Waste material ${index + 1}: please select an item or provide a name`);
+      continue;
+    }
+
+    let sourceInventoryItem = null;
+    if (hasSelection) {
+      sourceInventoryItem = await Inventory.findById(material.inventoryItemId);
+    }
+
+    // If the referenced inventory item is missing, fall back to material name
+    const wasteInventoryItem = await ensureWasteInventoryItem({
+      baseItem: sourceInventoryItem,
+      materialName: material.materialName || (sourceInventoryItem ? sourceInventoryItem.name : undefined),
+      unit: material.unit || (sourceInventoryItem ? sourceInventoryItem.unit : undefined)
+    });
+
+    if (!wasteInventoryItem) {
+      validationResult.valid = false;
+      validationResult.errors.push(`Waste material ${index + 1}: unable to determine or create waste inventory item`);
+      continue;
+    }
+
+    validationResult.processedMaterials.push({
+      inventoryItemId: wasteInventoryItem._id,
+      materialName: wasteInventoryItem.name,
+      quantityProduced,
+      unit: wasteInventoryItem.unit || material.unit || 'kg'
+    });
+  }
+
+  return validationResult;
+};
+
 // Process inventory changes after mill production
-const processInventoryChanges = async (rawMaterials, finishedProductItem, totalWeight, userId) => {
+const processInventoryChanges = async (rawMaterials, finishedProductItem, totalWeight, wasteMaterials, userId) => {
   try {
     // Consume raw materials
     for (const material of rawMaterials) {
@@ -267,6 +463,16 @@ const processInventoryChanges = async (rawMaterials, finishedProductItem, totalW
     finishedProductItem.quantity += totalWeight;
     finishedProductItem.lastUpdatedBy = userId;
     await finishedProductItem.save();
+
+    // Add waste materials to inventory
+    for (const waste of wasteMaterials) {
+      const wasteItem = await Inventory.findById(waste.inventoryItemId);
+      if (wasteItem) {
+        wasteItem.quantity += waste.quantityProduced;
+        wasteItem.lastUpdatedBy = userId;
+        await wasteItem.save();
+      }
+    }
 
     // Check if this production fulfills any blocked orders
     await checkAndFulfillBlockedOrders(finishedProductItem);
@@ -422,6 +628,7 @@ const getDailySummaries = async (req, res) => {
       .populate('createdBy', 'name alias')
       .populate('rawMaterials.inventoryItemId', 'name sku')
       .populate('finishedProduct.inventoryItemId', 'name sku quantity')
+      .populate('wasteMaterials.inventoryItemId', 'name sku quantity')
       .sort({ date: -1 })
       .skip(skip)
       .limit(parseInt(perPage));

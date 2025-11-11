@@ -112,7 +112,7 @@ export interface OrderHistory {
 export interface InventoryItem {
   _id: string;
   sku: string;
-  type: 'finished_product' | 'raw_material' | 'store_item';
+  type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
   status: 'available' | 'needed' | 'low_stock' | 'out_of_stock' | 'blocked';
   name: string;
   dimensions?: string;
@@ -181,6 +181,13 @@ export interface RawMaterialUsage {
   unit: string;
 }
 
+export interface WasteMaterialOutput {
+  inventoryItemId?: string;
+  materialName: string;
+  quantityProduced: number;
+  unit: string;
+}
+
 export interface MillDailySummary {
   _id: string;
   date: string;
@@ -198,7 +205,9 @@ export interface MillDailySummary {
   rawMaterials?: RawMaterialUsage[];
   finishedProduct?: {
     inventoryItemId?: string;
+    quantityProduced?: number;
   };
+  wasteMaterials?: WasteMaterialOutput[];
   createdAt: string;
   updatedAt: string;
 }

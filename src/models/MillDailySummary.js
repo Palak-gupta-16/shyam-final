@@ -6,7 +6,7 @@ const millDailySummarySchema = new mongoose.Schema({
     required: true,
     unique: true
   },
- rawMaterials: [ // New field
+  rawMaterials: [
     {
       inventoryItemId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -14,16 +14,34 @@ const millDailySummarySchema = new mongoose.Schema({
         required: true
       },
       materialName: { type: String, required: true },
-      quantityUsed: { type: Number, required: true, min: 0 }, // in KG or ton
-      unit: { type: String, default: 'mg' }
+      quantityUsed: { type: Number, required: true, min: 0 },
+      unit: { type: String, default: 'kg' }
     }
   ],
   finishedProduct: {
     inventoryItemId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Inventory'
+      ref: 'Inventory',
+      required: true
+    },
+    quantityProduced: {
+      type: Number,
+      min: 0,
+      default: 0
     }
   },
+  wasteMaterials: [
+    {
+      inventoryItemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Inventory',
+        required: true
+      },
+      materialName: { type: String, required: true },
+      quantityProduced: { type: Number, required: true, min: 0 },
+      unit: { type: String, default: 'kg' }
+    }
+  ],
   name: {
     type: String,
     required: true,
@@ -33,7 +51,7 @@ const millDailySummarySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-   billetSize: {
+  billetSize: {
     type: String,
     required: true,
     trim: true

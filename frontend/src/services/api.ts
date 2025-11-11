@@ -15,7 +15,8 @@ import {
   PaginatedResponse,
   OrdersResponse,
   GatePassesResponse,
-  RawMaterialUsage
+  RawMaterialUsage,
+  WasteMaterialOutput
 } from '../types';
 
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -320,6 +321,11 @@ export const millAPI = {
     dimensions?: string;
     billetSize: string;
     rawMaterials: RawMaterialUsage[];
+    wasteMaterials?: WasteMaterialOutput[];
+    finishedProduct: {
+      inventoryItemId: string;
+      quantityProduced?: number;
+    };
     totalPieces: number;
     totalWeight: number;
     breakdownSummary?: string;

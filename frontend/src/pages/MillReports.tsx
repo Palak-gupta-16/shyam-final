@@ -18,7 +18,7 @@ import Modal from '../components/common/Modal';
 import Table from '../components/common/Table';
 import InventoryDropdown from '../components/common/InventoryDropdown';
 import { millAPI } from '../services/api';
-import { MillHourlyReport, MillDailySummary, InventoryItem, RawMaterialUsage } from '../types';
+import { MillHourlyReport, MillDailySummary, InventoryItem, RawMaterialUsage, WasteMaterialOutput } from '../types';
 
 const MillReports: React.FC = () => {
   const [hourlyReports, setHourlyReports] = useState<MillHourlyReport[]>([]);
@@ -278,11 +278,11 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     finishedProduct: { inventoryItemId: '' },
     rawMaterials: [
       { inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }
-    ] as RawMaterialUsage[]
+    ] as RawMaterialUsage[],
+    wasteMaterials: [] as WasteMaterialOutput[]
   });
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [finishedProductItem, setFinishedProductItem] = useState<InventoryItem | null>(null);
 
   const handleMaterialChange = (index: number, key: string, value: any) => {
     const updated = [...form.rawMaterials];
@@ -316,13 +316,50 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     setForm({ ...form, rawMaterials: updated });
   };
 
+  const handleWasteChange = (index: number, key: keyof WasteMaterialOutput, value: any) => {
+    const updated = [...form.wasteMaterials];
+    updated[index] = { ...updated[index], [key]: value };
+    setForm({ ...form, wasteMaterials: updated });
+    setValidationErrors([]);
+  };
+
+  const handleWasteSelect = (index: number, item: InventoryItem | null) => {
+    const updated = [...form.wasteMaterials];
+    updated[index] = {
+      ...updated[index],
+      inventoryItemId: item?._id || '',
+      materialName: item?.name || '',
+      unit: item?.unit || 'kg'
+    };
+    setForm({ ...form, wasteMaterials: updated });
+    setValidationErrors([]);
+  };
+
+  const addWasteMaterial = () => {
+    setForm({
+      ...form,
+      wasteMaterials: [
+        ...form.wasteMaterials,
+        { inventoryItemId: '', materialName: '', quantityProduced: 0, unit: 'kg' }
+      ]
+    });
+    setValidationErrors([]);
+  };
+
+  const removeWasteMaterial = (index: number) => {
+    const updated = [...form.wasteMaterials];
+    updated.splice(index, 1);
+    setForm({ ...form, wasteMaterials: updated });
+    setValidationErrors([]);
+  };
+
   const validateForm = () => {
     const errors: string[] = [];
     
-    if (!form.name.trim()) {
-      errors.push('Product name is required');
+    if (!form.finishedProduct?.inventoryItemId) {
+      errors.push('Please select a finished product');
     }
-    
+
     if (!form.billetSize.trim()) {
       errors.push('Billet size is required');
     }
@@ -343,6 +380,23 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         errors.push(`Raw material ${index + 1}: Quantity must be greater than 0`);
       }
     });
+
+    form.wasteMaterials.forEach((material, index) => {
+      const hasSelection = Boolean(material.inventoryItemId);
+      const hasQuantity = material.quantityProduced > 0;
+
+      if (!hasSelection && !hasQuantity) {
+        return;
+      }
+
+      if (!hasSelection) {
+        errors.push(`Waste material ${index + 1}: Please select an item`);
+      }
+
+      if (!hasQuantity) {
+        errors.push(`Waste material ${index + 1}: Quantity must be greater than 0`);
+      }
+    });
     
     return errors;
   };
@@ -360,7 +414,31 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     setValidationErrors([]);
     
     try {
-      await millAPI.createDailySummary(form);
+      const rawMaterialsPayload = form.rawMaterials.map((material) => ({
+        inventoryItemId: material.inventoryItemId,
+        materialName: material.materialName,
+        quantityUsed: material.quantityUsed,
+        unit: material.unit
+      }));
+
+      const wasteMaterialsPayload = form.wasteMaterials
+        .filter((material) => material.inventoryItemId && material.quantityProduced > 0)
+        .map((material) => ({
+          inventoryItemId: material.inventoryItemId,
+          materialName: material.materialName,
+          quantityProduced: material.quantityProduced,
+          unit: material.unit
+        }));
+
+      await millAPI.createDailySummary({
+        ...form,
+        rawMaterials: rawMaterialsPayload,
+        wasteMaterials: wasteMaterialsPayload,
+        finishedProduct: {
+          inventoryItemId: form.finishedProduct.inventoryItemId,
+          quantityProduced: form.totalWeight
+        }
+      });
       onSuccess();
       onClose();
       // Reset form
@@ -377,9 +455,9 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         efficiency: 0,
         remarks: '',
         finishedProduct: { inventoryItemId: '' },
-        rawMaterials: [{ inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }]
+        rawMaterials: [{ inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }],
+        wasteMaterials: []
       });
-      setFinishedProductItem(null);
     } catch (error: any) {
       console.error('Error creating daily summary:', error);
       if (error.response?.data?.errors) {
@@ -441,14 +519,13 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
               type="finished_product"
               value={form.finishedProduct?.inventoryItemId || null}
               onChange={(item) => {
-                if (item) {
-                  setForm({
-                    ...form,
-                    name: item.name,
-                    dimensions: item.dimensions || '',
-                    finishedProduct: { inventoryItemId: item._id }
-                  });
-                }
+                setForm({
+                  ...form,
+                  name: item?.name || '',
+                  dimensions: item?.dimensions || '',
+                  finishedProduct: { inventoryItemId: item?._id || '' }
+                });
+                setValidationErrors([]);
               }}
               placeholder="Select finished product..."
               showStock={true}
@@ -561,6 +638,72 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Raw Material
+            </Button>
+          </div>
+        </div>
+
+        {/* Waste Materials Section */}
+        <div className="bg-yellow-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Waste / Scrap Produced</h3>
+          <div className="space-y-4">
+            {form.wasteMaterials.length === 0 && (
+              <div className="bg-white border border-dashed border-yellow-300 rounded-lg p-4 text-sm text-gray-600">
+                No waste recorded for this summary. Add an entry if scrap or waste was collected.
+              </div>
+            )}
+
+            {form.wasteMaterials.map((material, index) => (
+              <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Waste Material {index + 1}
+                    </label>
+                    <InventoryDropdown
+                      type="raw_material"
+                      excludeIds={form.finishedProduct?.inventoryItemId ? [form.finishedProduct.inventoryItemId] : []}
+                      value={material.inventoryItemId || null}
+                      onChange={(item) => handleWasteSelect(index, item)}
+                      placeholder="Select waste item..."
+                      showStock={false}
+                    />
+                  </div>
+                  <Input
+                    label="Quantity Produced"
+                    type="number"
+                    value={material.quantityProduced}
+                    onChange={e => handleWasteChange(index, 'quantityProduced', Number(e.target.value))}
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => removeWasteMaterial(index)}
+                      className="w-full"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+                {material.unit && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    Unit: {material.unit}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={addWasteMaterial}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Waste Entry
             </Button>
           </div>
         </div>
