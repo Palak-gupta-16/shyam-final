@@ -85,7 +85,7 @@ export type OrderStatus =
   | 'completed';
 
 export interface Product {
-  inventoryItemId?: string;
+  inventoryItemId?: string | InventoryItem;
   name: string;
   dimensions?: string;
   length?: string;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Order } from '../../types';
+import { InventoryItem, Order } from '../../types';
 import Button from '../common/Button';
 import Input from '../common/Input';
 import { BundleDetailInput, LoadingFormState, ProductLoadForm } from '../../utils/loading';
@@ -110,9 +110,18 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
           return null;
         }
 
-        const productKey = product.inventoryItemId
-          ? String(product.inventoryItemId)
-          : `${product.name}-${load.productIndex}`;
+        const inventoryRef = product.inventoryItemId;
+        const inventoryObject =
+          inventoryRef && typeof inventoryRef === 'object'
+            ? (inventoryRef as InventoryItem)
+            : null;
+
+  const productKey = inventoryObject?._id
+          || (typeof inventoryRef === 'string' ? inventoryRef : `${product.name}-${load.productIndex}`);
+
+        const skuLabel = inventoryObject?.sku
+          || (typeof inventoryRef === 'string' ? inventoryRef : inventoryObject?._id)
+          || 'N/A';
 
         const expectedBundles = product.quantity || 0;
         const recordedBundles = load.bundleDetails ? load.bundleDetails.length : 0;
@@ -129,7 +138,7 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
               <div>
                 <h4 className="text-lg font-semibold text-gray-900">{product.name}</h4>
                 <p className="text-sm text-gray-500">
-                  SKU: {product.inventoryItemId || 'N/A'}
+                  SKU: {skuLabel}
                   {product.dimensions ? ` • Dimensions: ${product.dimensions}` : ''}
                   {product.length ? ` • Length: ${product.length}` : ''}
                 </p>

@@ -506,7 +506,19 @@ const CreateOrderModal: React.FC<{
           driverName: formData.vehicle.driverName,
           driverNumber: formData.vehicle.driverNumber,
         },
-        products: validProducts,
+        products: validProducts.map((product) => ({
+          inventoryItemId: product.inventoryItemId,
+          name: product.name,
+          dimensions:
+            product.dimensions !== undefined && product.dimensions !== null
+              ? String(product.dimensions)
+              : '',
+          length:
+            product.length !== undefined && product.length !== null
+              ? String(product.length)
+              : '',
+          quantity: Number(product.quantity) || 0,
+        })),
       };
       await ordersAPI.createOrder(processedData);
       onSuccess();
@@ -647,8 +659,16 @@ const CreateOrderModal: React.FC<{
                       if (item) {
                         updateProduct(index, 'inventoryItemId', item._id);
                         updateProduct(index, 'name', item.name);
-                        updateProduct(index, 'dimensions', item.dimensions || '');
-                        updateProduct(index, 'length', item.length || '');
+                        updateProduct(index, 'dimensions',
+                          item.dimensions !== undefined && item.dimensions !== null
+                            ? String(item.dimensions)
+                            : ''
+                        );
+                        updateProduct(index, 'length',
+                          item.length !== undefined && item.length !== null
+                            ? String(item.length)
+                            : ''
+                        );
                       } else {
                         updateProduct(index, 'inventoryItemId', '');
                         updateProduct(index, 'name', '');
