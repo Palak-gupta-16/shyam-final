@@ -389,30 +389,76 @@ const ActionModal: React.FC<{
     setLoading(true);
     
     let processedData = { ...formData };
-    
+
     // Special processing for complete-loading action
     if (actionType === 'complete-loading') {
-      processedData = {
-        bundles: formData.bundles || 0,
-        weightPerBundle: formData.weightPerBundle || 0,
-        productLoads: (formData.productLoads || []).filter((load: any) => 
-          load.productIndex !== undefined && 
-          load.productIndex !== "" && 
-          load.bundles > 0 && 
-          load.weightPerBundle > 0
-        ).map((load: any) => ({
+      const sanitizedLoads = (formData.productLoads || [])
+        .filter((load: any) =>
+          load &&
+          load.productIndex !== undefined &&
+          load.productIndex !== '' &&
+          Number(load.bundles) > 0 &&
+          Number(load.weightPerBundle) > 0
+        )
+        .map((load: any) => ({
           productIndex: Number(load.productIndex),
           bundles: Number(load.bundles),
           weightPerBundle: Number(load.weightPerBundle)
-        }))
+        }));
+
+      const bundlesFromLoads = sanitizedLoads.reduce(
+        (sum: number, load: any) => sum + load.bundles,
+        0
+      );
+      const fallbackBundles = Number(formData.bundles) || 0;
+      const bundlesToSend = bundlesFromLoads || fallbackBundles;
+
+      const totalWeightFromLoads = sanitizedLoads.reduce(
+        (sum: number, load: any) => sum + load.bundles * load.weightPerBundle,
+        0
+      );
+      const weightPerBundleValue = Number(formData.weightPerBundle) || 0;
+      const totalLoadedWeight = totalWeightFromLoads || (bundlesToSend * weightPerBundleValue);
+
+      processedData = {
+        bundles: bundlesToSend,
+        weightPerBundle: weightPerBundleValue,
+        totalLoadedWeight,
+        productLoads: sanitizedLoads
       };
+
+      const trimmedNotes = formData.notes?.trim();
+      if (trimmedNotes) {
+        processedData.notes = trimmedNotes;
+      }
     }
-    
+
     // Special processing for generate-invoice action
     if (actionType === 'generate-invoice') {
+      const amountValue = Number(formData.amount) || 0;
+      const rateValue = formData.rate !== undefined && formData.rate !== ''
+        ? Number(formData.rate)
+        : undefined;
+      const taxValue = formData.taxRate !== undefined && formData.taxRate !== ''
+        ? Number(formData.taxRate)
+        : undefined;
+      const notesValue = formData.invoiceNotes?.trim();
+
       processedData = {
-        amount: formData.amount || 0
+        amount: amountValue
       };
+
+      if (rateValue !== undefined && !Number.isNaN(rateValue)) {
+        processedData.RatePerUnit = rateValue;
+      }
+
+      if (taxValue !== undefined && !Number.isNaN(taxValue)) {
+        processedData.TaxPercentage = taxValue;
+      }
+
+      if (notesValue) {
+        processedData.invoiceNotes = notesValue;
+      }
     }
     
     await onExecute(processedData);

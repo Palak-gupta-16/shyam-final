@@ -16,7 +16,8 @@ import {
   OrdersResponse,
   GatePassesResponse,
   RawMaterialUsage,
-  WasteMaterialOutput
+  WasteMaterialOutput,
+  LoadingCompletePayload
 } from '../types';
 
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -149,15 +150,7 @@ getOrdersByStatus: async (params?: {
     return response.data;
   },
 
-  loadingComplete: async (orderId: string, data: {
-    bundles: number;
-    weightPerBundle: number;
-    productLoads: Array<{
-      productIndex: number;
-      bundles: number;
-      weightPerBundle: number;
-    }>;
-  }): Promise<ApiResponse<Order>> => {
+  loadingComplete: async (orderId: string, data: LoadingCompletePayload): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.post(`/orders/${orderId}/loading-complete`, data);
     return response.data;
   },
@@ -167,7 +160,12 @@ getOrdersByStatus: async (params?: {
     return response.data;
   },
 
-  generateInvoice: async (orderId: string, data: { amount: number }): Promise<ApiResponse<Order>> => {
+  generateInvoice: async (orderId: string, data: {
+    amount: number;
+    RatePerUnit?: number;
+    TaxPercentage?: number;
+    invoiceNotes?: string;
+  }): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.post(`/orders/${orderId}/generate-invoice`, data);
     return response.data;
   },

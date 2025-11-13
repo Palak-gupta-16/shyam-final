@@ -124,6 +124,10 @@ const orderSchema = new mongoose.Schema({
       type: Number,
       min: 0
     },
+    averageWeightPerBundle: {
+      type: Number,
+      min: 0
+    },
     productLoads: [{
       productIndex: {
         type: Number,
@@ -132,14 +136,40 @@ const orderSchema = new mongoose.Schema({
       bundles: {
         type: Number,
         required: true,
+        min: 1
+      },
+      totalWeight: {
+        type: Number,
         min: 0
       },
       weightPerBundle: {
         type: Number,
-        required: true,
         min: 0
-      }
-    }]
+      },
+      bundleDetails: [{
+        bundleNumber: {
+          type: Number,
+          min: 1
+        },
+        weight: {
+          type: Number,
+          required: true,
+          min: 0
+        },
+        size: {
+          type: String,
+          trim: true
+        },
+        length: {
+          type: Number,
+          min: 0
+        }
+      }]
+    }],
+    notes: {
+      type: String,
+      trim: true
+    }
   },
   invoice: {
     billNumber: {

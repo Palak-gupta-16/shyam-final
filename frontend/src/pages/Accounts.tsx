@@ -389,14 +389,31 @@ const ActionModal: React.FC<{
     
     
     // Special processing for generate-invoice action
-  if (actionType === 'generate-invoice') {
+    if (actionType === 'generate-invoice') {
+      const amountValue = Number(formData.amount) || 0;
+      const rateValue = formData.rate !== undefined && formData.rate !== ''
+        ? Number(formData.rate)
+        : undefined;
+      const taxValue = formData.taxRate !== undefined && formData.taxRate !== ''
+        ? Number(formData.taxRate)
+        : undefined;
+      const notesValue = formData.invoiceNotes?.trim();
+
       processedData = {
-        amount: Number(formData.amount) || 0,
-        RatePerUnit: Number(formData.rate) || 0,
-        TaxPercentage: Number(formData.taxRate) || 0,
-        pdfUrl: formData.pdfUrl || '',
-        invoiceNotes: formData.invoiceNotes || '',
+        amount: amountValue
       };
+
+      if (rateValue !== undefined && !Number.isNaN(rateValue)) {
+        processedData.RatePerUnit = rateValue;
+      }
+
+      if (taxValue !== undefined && !Number.isNaN(taxValue)) {
+        processedData.TaxPercentage = taxValue;
+      }
+
+      if (notesValue) {
+        processedData.invoiceNotes = notesValue;
+      }
     }
     // console.log('Processed Data:', processedData);
     await onExecute(processedData);

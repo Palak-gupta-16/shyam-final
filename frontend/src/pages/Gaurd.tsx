@@ -1,28 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  FileText, 
-  Plus, 
-  Search, 
-  Clock,
-  CheckCircle,
-  Package,
-  Eye
-} from 'lucide-react';
+import { Eye, Search } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
-import Modal from '../components/common/Modal';
 import Badge from '../components/common/Badge';
 import OrderCard from '../components/orders/OrderCard';
 import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
+import OrderActionModal from '../components/orders/OrderActionModal';
 import {ordersAPI} from '../services/api';
 import { Order, OrderStatus } from '../types';
-import { useAuth } from '../context/AuthContext';
 
 const Orders: React.FC = () => {
-  const { hasRole } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -30,7 +20,6 @@ const Orders: React.FC = () => {
   const [selectedType, setSelectedType] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [showActionModal, setShowActionModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [actionType, setActionType] = useState<string>('');
@@ -203,7 +192,7 @@ const fetchOrders = useCallback(async () => {
         )}
 
         {/* Action Modal */}
-        <ActionModal
+        <OrderActionModal
           isOpen={showActionModal}
           onClose={() => {
             setShowActionModal(false);
@@ -229,9 +218,7 @@ const OrdersTable: React.FC<{
       key: 'orderNumber',
       title: 'Order #',
       sortable: true,
-      render: (value: number) => (
-        <span className="font-medium">#{value}</span>
-      ),
+      render: (value: number) => <span className="font-medium">#{value}</span>,
     },
     {
       key: 'type',
@@ -265,9 +252,7 @@ const OrdersTable: React.FC<{
     {
       key: 'createdAt',
       title: 'Created',
-      render: (value: string) => (
-        new Date(value).toLocaleDateString()
-      ),
+      render: (value: string) => new Date(value).toLocaleDateString(),
     },
     {
       key: 'actions',
@@ -309,12 +294,12 @@ const OrdersTable: React.FC<{
                     }
                     return order[key as keyof Order];
                   };
-                  
+
                   const value = getValue(column.key);
-                  
+
                   return (
                     <td key={index} className="px-6 py-4 whitespace-nowrap text-sm">
-                      {column.render ? column.render(value, order) : value as React.ReactNode}
+                      {column.render ? column.render(value, order) : (value as React.ReactNode)}
                     </td>
                   );
                 })}
@@ -324,399 +309,6 @@ const OrdersTable: React.FC<{
         </table>
       </div>
     </Card>
-  );
-};
-
-
-
-// Action Modal
-const ActionModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  order: Order | null;
-  actionType: string;
-  onExecute: (data: any) => void;
-}> = ({ isOpen, onClose, order, actionType, onExecute }) => {
-  const [formData, setFormData] = useState<any>({});
-  const [loading, setLoading] = useState(false);
-
-  if (!order) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    let processedData = { ...formData };
-    
-    // Special processing for complete-loading action
-    if (actionType === 'complete-loading') {
-      processedData = {
-        bundles: formData.bundles || 0,
-        weightPerBundle: formData.weightPerBundle || 0,
-        productLoads: (formData.productLoads || []).filter((load: any) => 
-          load.productIndex !== undefined && 
-          load.productIndex !== "" && 
-          load.bundles > 0 && 
-          load.weightPerBundle > 0
-        ).map((load: any) => ({
-          productIndex: Number(load.productIndex),
-          bundles: Number(load.bundles),
-          weightPerBundle: Number(load.weightPerBundle)
-        }))
-      };
-    }
-    
-    // Special processing for generate-invoice action
-    if (actionType === 'generate-invoice') {
-      processedData = {
-        amount: formData.amount || 0
-      };
-    }
-    
-    await onExecute(processedData);
-    setLoading(false);
-  };
-
-  const renderActionForm = () => {
-    switch (actionType) {
-      case 'guard-approve':
-        return (
-          <div className="space-y-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="font-medium text-blue-900">Guard Approval</h4>
-              <p className="text-sm text-blue-700 mt-1">
-                Approve vehicle entry for Order #{order.orderNumber}
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Approval Notes
-              </label>
-              <textarea
-                value={formData.notes || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, notes: e.target.value }))}
-                placeholder="Any additional notes..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        );
-
-      case 'empty-weight':
-        return (
-          <div className="space-y-4">
-            <div className="bg-yellow-50 p-4 rounded-lg">
-              <h4 className="font-medium text-yellow-900">Record Empty Weight</h4>
-              <p className="text-sm text-yellow-700 mt-1">
-                Vehicle: {order.vehicle.number} | Driver: {order.vehicle.driverName}
-              </p>
-            </div>
-            <Input
-              label="Empty Weight (KG)"
-              type="number"
-              step="0.1"
-              value={formData.emptyWeight || ''}
-              onChange={(e) => setFormData((prev: any) => ({ ...prev, emptyWeight: Number(e.target.value) }))}
-              required
-              placeholder="Enter empty vehicle weight"
-            />
-            <Input
-              label="Weighbridge Slip Number"
-              value={formData.slipNumber || ''}
-              onChange={(e) => setFormData((prev: any) => ({ ...prev, slipNumber: e.target.value }))}
-              placeholder="Enter slip number"
-            />
-          </div>
-        );
-
-      case 'accept-loading':
-        return (
-          <div className="space-y-4">
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h4 className="font-medium text-green-900">Accept for Loading</h4>
-              <p className="text-sm text-green-700 mt-1">
-                Confirm vehicle is ready for loading operations
-              </p>
-            </div>
-            <Input
-              label="Accepted By"
-              value={formData.acceptedBy || ''}
-              onChange={(e) => setFormData((prev: any) => ({ ...prev, acceptedBy: e.target.value }))}
-              required
-              placeholder="Enter your name"
-            />
-          </div>
-        );
-
-      case 'complete-loading':
-        return (
-          <div className="space-y-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="font-medium text-blue-900">Complete Loading</h4>
-              <p className="text-sm text-blue-700 mt-1">
-                Record loading completion details
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Total Bundles"
-                type="number"
-                value={formData.bundles || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, bundles: Number(e.target.value) }))}
-                placeholder="Number of bundles"
-                required
-              />
-              <Input
-                label="Weight per Bundle (KG)"
-                type="number"
-                step="0.1"
-                value={formData.weightPerBundle || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, weightPerBundle: Number(e.target.value) }))}
-                placeholder="Weight per bundle"
-                required
-              />
-            </div>
-            
-            {/* Product Loads Section */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <label className="block text-sm font-medium text-gray-700">Product Loads</label>
-                <Button 
-                  type="button" 
-                  variant="secondary" 
-                  size="sm" 
-                  onClick={() => {
-                    const newProductLoads = (formData.productLoads || []).slice();
-                    newProductLoads.push({ productIndex: undefined, bundles: 0, weightPerBundle: 0 });
-                    setFormData((prev: any) => ({ ...prev, productLoads: newProductLoads }));
-                  }}
-                >
-                  Add Load
-                </Button>
-              </div>
-              
-              <div className="space-y-3">
-                {(formData.productLoads || [{ productIndex: undefined, bundles: 0, weightPerBundle: 0 }]).map((load: any, index: number) => (
-                  <div key={index} className="grid grid-cols-12 gap-3 items-end p-3 border rounded-lg bg-gray-50">
-                    <div className="col-span-4">
-                      <select
-                        value={load.productIndex !== undefined ? load.productIndex : ""}
-                        onChange={(e) => {
-                          const newProductLoads = (formData.productLoads || []).slice();
-                          newProductLoads[index] = { ...newProductLoads[index], productIndex: Number(e.target.value) };
-                          setFormData((prev: any) => ({ ...prev, productLoads: newProductLoads }));
-                        }}
-                        className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        required
-                      >
-                        <option value="">Select Product</option>
-                        {(order?.products || []).map((product: any, idx: number) => (
-                          <option key={idx} value={idx}>
-                            {product.name || `Product ${idx + 1}`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-span-3">
-                      <Input
-                        type="number"
-                        placeholder="Bundles"
-                        min="0"
-                        value={load.bundles || ''}
-                        onChange={(e) => {
-                          const newProductLoads = (formData.productLoads || []).slice();
-                          newProductLoads[index] = { ...newProductLoads[index], bundles: Number(e.target.value) };
-                          setFormData((prev: any) => ({ ...prev, productLoads: newProductLoads }));
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="col-span-4">
-                      <Input
-                        type="number"
-                        placeholder="Weight per Bundle (KG)"
-                        min="0"
-                        step="0.1"
-                        value={load.weightPerBundle || ''}
-                        onChange={(e) => {
-                          const newProductLoads = (formData.productLoads || []).slice();
-                          newProductLoads[index] = { ...newProductLoads[index], weightPerBundle: Number(e.target.value) };
-                          setFormData((prev: any) => ({ ...prev, productLoads: newProductLoads }));
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="col-span-1">
-                      {(formData.productLoads || []).length > 1 && (
-                        <Button
-                          type="button"
-                          variant="danger"
-                          size="sm"
-                          onClick={() => {
-                            const newProductLoads = (formData.productLoads || []).filter((_: any, i: number) => i !== index);
-                            setFormData((prev: any) => ({ ...prev, productLoads: newProductLoads }));
-                          }}
-                        >
-                          ×
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Loading Notes
-              </label>
-              <textarea
-                value={formData.notes || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, notes: e.target.value }))}
-                placeholder="Any loading observations..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        );
-
-      case 'final-weight':
-        return (
-          <div className="space-y-4">
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <h4 className="font-medium text-purple-900">Record Final Weight</h4>
-              <p className="text-sm text-purple-700 mt-1">
-                Record final loaded vehicle weight
-              </p>
-            </div>
-            <Input
-              label="Final Weight (KG)"
-              type="number"
-              step="0.1"
-              value={formData.finalWeight || ''}
-              onChange={(e) => setFormData((prev: any) => ({ ...prev, finalWeight: Number(e.target.value) }))}
-              required
-              placeholder="Enter final vehicle weight"
-            />
-            <Input
-              label="Final Weighbridge Slip Number"
-              value={formData.finalSlipNumber || ''}
-              onChange={(e) => setFormData((prev: any) => ({ ...prev, finalSlipNumber: e.target.value }))}
-              placeholder="Enter final slip number"
-            />
-          </div>
-        );
-
-      case 'generate-invoice':
-        return (
-          <div className="space-y-4">
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h4 className="font-medium text-green-900">Generate Invoice</h4>
-              <p className="text-sm text-green-700 mt-1">
-                Create billing invoice for completed order
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              <Input
-                label="Invoice Amount (₹)"
-                type="number"
-                step="1"
-                value={formData.amount || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, amount: Number(e.target.value) }))}
-                required
-                placeholder="Enter total invoice amount"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Rate per Unit (₹)"
-                type="number"
-                step="1"
-                value={formData.rate || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, rate: Number(e.target.value) }))}
-                placeholder="Rate per unit"
-              />
-              <Input
-                label="Tax Rate (%)"
-                type="number"
-                step="1"
-                value={formData.taxRate || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, taxRate: Number(e.target.value) }))}
-                placeholder="Tax percentage"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Invoice Notes
-              </label>
-              <textarea
-                value={formData.invoiceNotes || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, invoiceNotes: e.target.value }))}
-                placeholder="Additional invoice details..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        );
-
-      case 'exit':
-        return (
-          <div className="space-y-4">
-            <div className="bg-red-50 p-4 rounded-lg">
-              <h4 className="font-medium text-red-900">Vehicle Exit</h4>
-              <p className="text-sm text-red-700 mt-1">
-                Confirm vehicle exit and order completion
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Exit Notes
-              </label>
-              <textarea
-                value={formData.exitNotes || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, exitNotes: e.target.value }))}
-                placeholder="Any exit observations..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        );
-
-      default:
-        return (
-          <div className="text-center py-8">
-            <Package className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Action: {actionType}</h3>
-            <p className="text-gray-600">Unknown action type</p>
-          </div>
-        );
-    }
-  };
-
-  return (
-    <Modal 
-      isOpen={isOpen} 
-      onClose={onClose} 
-      title={`${actionType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())} - Order #${order.orderNumber}`} 
-      size="lg"
-    >
-      <form onSubmit={handleSubmit}>
-        {renderActionForm()}
-        
-        <div className="flex justify-end space-x-3 pt-6 mt-6 border-t">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={loading}>
-            Execute Action
-          </Button>
-        </div>
-      </form>
-    </Modal>
   );
 };
 

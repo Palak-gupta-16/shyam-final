@@ -32,6 +32,7 @@ export interface Order {
   vehicle: {
     number: string;
     driverName: string;
+    driverNumber?: string;
   };
   products: Product[];
   weights?: {
@@ -44,7 +45,9 @@ export interface Order {
     acceptedBy?: string;
     bundles?: number;
     totalLoadedWeight?: number;
+    averageWeightPerBundle?: number;
     productLoads?: ProductLoad[];
+    notes?: string;
   };
   invoice?: {
     billNumber?: number;
@@ -97,7 +100,31 @@ export interface Product {
 export interface ProductLoad {
   productIndex: number;
   bundles: number;
-  weightPerBundle: number;
+  totalWeight?: number;
+  weightPerBundle?: number;
+  bundleDetails?: BundleDetail[];
+}
+
+export interface BundleDetail {
+  bundleNumber?: number;
+  weight: number;
+  size?: string;
+  length?: number;
+}
+
+export interface LoadingCompletePayload {
+  bundles?: number;
+  totalLoadedWeight?: number;
+  weightPerBundle?: number;
+  averageWeightPerBundle?: number;
+  notes?: string;
+  productLoads: Array<{
+    productIndex: number;
+    bundles: number;
+    totalWeight?: number;
+    weightPerBundle?: number;
+    bundleDetails: BundleDetail[];
+  }>;
 }
 
 export interface OrderHistory {

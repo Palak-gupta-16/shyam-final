@@ -356,6 +356,8 @@ const tryFulfillBlockedOrder = async (req, res) => {
     // Update order status
     order.isBlocked = false;
     order.blockedReason = null;
+  order.blockedAt = null;
+  order.blockedBy = null;
     order.fulfilledAt = new Date();
     
     order.history.push({
@@ -759,32 +761,192 @@ const acceptUnloading = async (req, res) => {
 const loadingComplete = async (req, res) => {
   try {
     const { id } = req.params;
-    const { bundles, totalLoadedWeight, productLoads } = req.body;
+  const { bundles, weightPerBundle, totalLoadedWeight, productLoads, notes } = req.body;
 
-    const order = await Order.findById(id);
+    const order = await Order.findById(id)
+      .populate('products.inventoryItemId');
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
 
-    // Update loading details
+    if (order.type !== 'dispatch') {
+      return res.status(400).json({ message: 'Loading completion is only applicable to dispatch orders' });
+    }
+
+    if (order.status !== 'inside_factory_pending_loading') {
+      return res.status(400).json({ message: 'Order is not ready for loading completion' });
+    }
+
+    if (!Array.isArray(productLoads) || productLoads.length === 0) {
+      return res.status(400).json({ message: 'At least one product load entry is required' });
+    }
+
+    const loadAggregation = new Map();
+    const normalizedLoads = [];
+    let bundlesFromLoads = 0;
+    let weightFromLoads = 0;
+
+    for (const load of productLoads) {
+      const productIndex = Number(load.productIndex);
+
+      if (
+        Number.isNaN(productIndex) ||
+        productIndex < 0 ||
+        productIndex >= order.products.length
+      ) {
+        return res.status(400).json({ message: 'Invalid product load data provided' });
+      }
+
+      const bundleDetailsInput = Array.isArray(load.bundleDetails) ? load.bundleDetails : [];
+      if (bundleDetailsInput.length === 0) {
+        return res.status(400).json({ message: 'Each product must include at least one bundle entry' });
+      }
+
+      const sanitizedBundleDetails = [];
+      let totalWeightForLoad = 0;
+
+      for (let detailIdx = 0; detailIdx < bundleDetailsInput.length; detailIdx++) {
+        const detail = bundleDetailsInput[detailIdx];
+        const weightValue = Number(detail.weight);
+        if (Number.isNaN(weightValue) || weightValue <= 0) {
+          return res.status(400).json({ message: 'Each bundle must have a positive weight value' });
+        }
+
+        let lengthValue;
+        if (detail.length !== undefined && detail.length !== null && detail.length !== '') {
+          lengthValue = Number(detail.length);
+          if (Number.isNaN(lengthValue) || lengthValue < 0) {
+            return res.status(400).json({ message: 'Bundle length must be a positive number' });
+          }
+        }
+
+        const sanitizedDetail = {
+          bundleNumber: detail.bundleNumber ? Number(detail.bundleNumber) : detailIdx + 1,
+          weight: Number(weightValue.toFixed(3))
+        };
+
+        const sizeValue = typeof detail.size === 'string' ? detail.size.trim() : '';
+        if (sizeValue) {
+          sanitizedDetail.size = sizeValue;
+        }
+
+        if (lengthValue !== undefined) {
+          sanitizedDetail.length = Number(lengthValue.toFixed(3));
+        }
+
+        sanitizedBundleDetails.push(sanitizedDetail);
+        totalWeightForLoad += weightValue;
+      }
+
+      const bundleCount = sanitizedBundleDetails.length;
+
+      normalizedLoads.push({
+        productIndex,
+        bundles: bundleCount,
+        totalWeight: Number(totalWeightForLoad.toFixed(3)),
+        bundleDetails: sanitizedBundleDetails
+      });
+
+      const aggregated = loadAggregation.get(productIndex) || { bundles: 0, weight: 0 };
+      aggregated.bundles += bundleCount;
+      aggregated.weight += totalWeightForLoad;
+      loadAggregation.set(productIndex, aggregated);
+
+      bundlesFromLoads += bundleCount;
+      weightFromLoads += totalWeightForLoad;
+    }
+
+    if (loadAggregation.size !== order.products.length) {
+      return res.status(400).json({ message: 'Please provide loading details for every product in the order' });
+    }
+
+    const providedBundles = Number(bundles) || 0;
+    if (providedBundles && bundlesFromLoads && providedBundles !== bundlesFromLoads) {
+      return res.status(400).json({ message: 'Total bundles do not match the sum of product bundles' });
+    }
+
+    const bundlesTotal = bundlesFromLoads || providedBundles;
+    if (bundlesTotal <= 0) {
+      return res.status(400).json({ message: 'Total bundles must be greater than zero' });
+    }
+
+  const providedTotalWeight = Number(totalLoadedWeight) || 0;
+  const fallbackWeight = bundlesTotal * (Number(weightPerBundle) || 0);
+  const derivedWeightTotal = weightFromLoads || providedTotalWeight || fallbackWeight;
+
+    const inventoryUpdates = [];
+
+    for (const [index, aggregated] of loadAggregation.entries()) {
+      const orderProduct = order.products[index];
+      if (!orderProduct || !orderProduct.inventoryItemId) {
+        return res.status(400).json({ message: `Missing inventory reference for product at position ${index + 1}` });
+      }
+
+      if (aggregated.bundles !== orderProduct.quantity) {
+        return res.status(400).json({
+          message: `Loaded bundles for ${orderProduct.name} (${aggregated.bundles}) do not match ordered quantity (${orderProduct.quantity}).`
+        });
+      }
+
+  const inventoryItemId = orderProduct.inventoryItemId._id || orderProduct.inventoryItemId;
+      const inventoryItem = await Inventory.findById(inventoryItemId);
+      if (!inventoryItem) {
+        return res.status(400).json({ message: `Inventory item not found for product: ${orderProduct.name}` });
+      }
+
+      if (!inventoryItem.consumeInventory(aggregated.bundles)) {
+        return res.status(400).json({
+          message: `Unable to consume inventory for ${orderProduct.name}. Available: ${inventoryItem.quantity}`
+        });
+      }
+
+      inventoryItem.lastUpdatedBy = req.user._id;
+      inventoryItem.blockedOrders = (inventoryItem.blockedOrders || []).filter(
+        blocked => blocked.orderId && blocked.orderId.toString() !== order._id.toString()
+      );
+
+      inventoryUpdates.push(inventoryItem.save());
+
+      orderProduct.quantityFulfilled = aggregated.bundles;
+      orderProduct.quantityPending = 0;
+    }
+
+    await Promise.all(inventoryUpdates);
+
+    const averageWeightPerBundle = bundlesTotal > 0
+      ? Number((derivedWeightTotal / bundlesTotal).toFixed(3))
+      : 0;
+
     order.loadingDetails = {
       acceptedBy: req.user._id,
-      bundles,
-      totalLoadedWeight,
-      productLoads
+      bundles: bundlesTotal,
+      totalLoadedWeight: Number(derivedWeightTotal.toFixed(3)),
+      averageWeightPerBundle,
+      productLoads: normalizedLoads
     };
 
-    // Update status
+    const trimmedNotes = typeof notes === 'string' ? notes.trim() : '';
+    if (trimmedNotes) {
+      order.loadingDetails.notes = trimmedNotes;
+    }
+
+    order.isBlocked = false;
+    order.blockedReason = null;
+
+    const previousStatus = order.status;
     order.status = 'inside_factory_pending_final_weight';
     order.history.push({
       by: req.user._id,
-      from: 'inside_factory_pending_loading',
-      to: 'inside_factory_pending_final_weight',
-      note: `Loading completed. ${bundles} bundles, ${totalLoadedWeight}kg total`,
+      from: previousStatus,
+      to: order.status,
+      note: `Loading completed. ${bundlesTotal} bundles${derivedWeightTotal ? `, ${derivedWeightTotal.toFixed(3)}kg total` : ''}`,
       at: new Date()
     });
 
+    order.markModified('products');
+
     await order.save();
+    await order.populate('products.inventoryItemId', 'name sku availableQuantity reservedQuantity status');
 
     res.json({
       message: 'Loading completed',
@@ -869,6 +1031,18 @@ const recordFinalWeight = async (req, res) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
+    const expectedStatus = order.type === 'dispatch'
+      ? 'inside_factory_pending_final_weight'
+      : 'inside_factory_pending_final_weight_purchase';
+
+    if (order.status !== expectedStatus) {
+      return res.status(400).json({ message: 'Order is not ready for final weight recording' });
+    }
+
+    if (order.type === 'dispatch' && (!order.loadingDetails || !order.loadingDetails.bundles)) {
+      return res.status(400).json({ message: 'Loading details must be recorded before capturing final weight' });
+    }
+
     // Update weights and calculate net weight
     order.weights = {
       ...order.weights,
@@ -884,13 +1058,13 @@ const recordFinalWeight = async (req, res) => {
     const newStatus = order.type === 'dispatch' 
       ? 'ready_for_billing'
       : 'ready_for_billing_purchase';
-
+    const previousStatus = order.status;
     order.status = newStatus;
     order.history.push({
       by: req.user._id,
-      from: order.status,
+      from: previousStatus,
       to: newStatus,
-      note: `Final weight recorded: ${finalWeight}kg, Net: ${order.netWeight}kg`,
+      note: `Final weight recorded: ${finalWeight}kg${order.netWeight ? `, Net: ${order.netWeight}kg` : ''}`,
       at: new Date()
     });
 
@@ -918,27 +1092,51 @@ const generateInvoice = async (req, res) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
+    const expectedStatus = order.type === 'dispatch'
+      ? 'ready_for_billing'
+      : 'ready_for_billing_purchase';
+
+    if (order.status !== expectedStatus) {
+      return res.status(400).json({ message: 'Order is not ready for invoicing' });
+    }
+
+    if (order.invoice && order.invoice.billNumber) {
+      return res.status(400).json({ message: 'Invoice has already been generated for this order' });
+    }
+
     // Generate bill number
     const billNumber = Math.floor(Math.random() * 1000000);
 
     // Update invoice
-    order.invoice = {
+    const invoicePayload = {
       billNumber,
-      amount,
-       RatePerUnit,
-  TaxPercentage,
-      invoiceNotes
+      amount
     };
+
+    if (typeof RatePerUnit === 'number' && !Number.isNaN(RatePerUnit)) {
+      invoicePayload.RatePerUnit = RatePerUnit;
+    }
+
+    if (typeof TaxPercentage === 'number' && !Number.isNaN(TaxPercentage)) {
+      invoicePayload.TaxPercentage = TaxPercentage;
+    }
+
+    const trimmedInvoiceNotes = typeof invoiceNotes === 'string' ? invoiceNotes.trim() : '';
+    if (trimmedInvoiceNotes) {
+      invoicePayload.invoiceNotes = trimmedInvoiceNotes;
+    }
+
+    order.invoice = invoicePayload;
 
     // Update status
     const newStatus = order.type === 'dispatch' 
       ? 'ready_for_dispatch'
       : 'ready_for_exit_purchase';
-
+    const previousStatus = order.status;
     order.status = newStatus;
     order.history.push({
       by: req.user._id,
-      from: order.status,
+      from: previousStatus,
       to: newStatus,
       note: `Invoice generated: Bill #${billNumber}, Amount: ₹${amount}`,
       at: new Date()
@@ -967,11 +1165,24 @@ const exitOrder = async (req, res) => {
       return res.status(404).json({ message: 'Order not found' });
     }
 
+    const expectedStatus = order.type === 'dispatch'
+      ? 'ready_for_dispatch'
+      : 'ready_for_exit_purchase';
+
+    if (order.status !== expectedStatus) {
+      return res.status(400).json({ message: 'Order is not ready for exit' });
+    }
+
+    if (order.type === 'dispatch' && (!order.invoice || !order.invoice.billNumber)) {
+      return res.status(400).json({ message: 'Invoice must be generated before marking dispatch exit' });
+    }
+
     // Update status to completed
+    const previousStatus = order.status;
     order.status = 'completed';
     order.history.push({
       by: req.user._id,
-      from: order.status,
+      from: previousStatus,
       to: 'completed',
       note: 'Vehicle exited factory',
       at: new Date()

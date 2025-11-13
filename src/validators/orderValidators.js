@@ -148,27 +148,68 @@ const finalWeightSchema = Joi.object({
     })
 });
 
+const bundleDetailSchema = Joi.object({
+  bundleNumber: Joi.number()
+    .integer()
+    .min(1)
+    .optional()
+    .messages({
+      'number.base': 'Bundle number must be a number',
+      'number.integer': 'Bundle number must be a whole number',
+      'number.min': 'Bundle number must be at least 1'
+    }),
+  weight: Joi.number()
+    .min(0)
+    .required()
+    .messages({
+      'number.base': 'Bundle weight must be a number',
+      'number.min': 'Bundle weight cannot be negative',
+      'any.required': 'Bundle weight is required'
+    }),
+  size: Joi.string()
+    .trim()
+    .allow('')
+    .max(100)
+    .optional()
+    .messages({
+      'string.max': 'Bundle size cannot exceed 100 characters'
+    }),
+  length: Joi.number()
+    .min(0)
+    .optional()
+    .messages({
+      'number.base': 'Bundle length must be a number',
+      'number.min': 'Bundle length cannot be negative'
+    })
+});
+
 const loadingCompleteSchema = Joi.object({
   bundles: Joi.number()
     .integer()
-    .min(0)
-    .required()
+    .min(1)
+    .optional()
     .messages({
       'number.base': 'Bundles must be a number',
       'number.integer': 'Bundles must be a whole number',
-      'number.min': 'Bundles cannot be negative',
-      'any.required': 'Bundles count is required'
+      'number.min': 'Bundles must be at least 1'
     }),
-  
+
   weightPerBundle: Joi.number()
     .min(0)
-    .required()
+    .optional()
     .messages({
       'number.base': 'Weight per bundle must be a number',
-      'number.min': 'Weight per bundle cannot be negative',
-      'any.required': 'Weight per bundle is required'
+      'number.min': 'Weight per bundle cannot be negative'
     }),
-  
+
+  totalLoadedWeight: Joi.number()
+    .min(0)
+    .optional()
+    .messages({
+      'number.base': 'Total loaded weight must be a number',
+      'number.min': 'Total loaded weight cannot be negative'
+    }),
+
   productLoads: Joi.array()
     .items(
       Joi.object({
@@ -182,31 +223,45 @@ const loadingCompleteSchema = Joi.object({
             'number.min': 'Product index cannot be negative',
             'any.required': 'Product index is required'
           }),
-        
         bundles: Joi.number()
           .integer()
-          .min(0)
-          .required()
+          .min(1)
+          .optional()
           .messages({
             'number.base': 'Bundles must be a number',
             'number.integer': 'Bundles must be a whole number',
-            'number.min': 'Bundles cannot be negative',
-            'any.required': 'Bundles count is required'
+            'number.min': 'Bundles must be at least 1'
           }),
-        
-        weightPerBundle: Joi.number()
+        totalWeight: Joi.number()
           .min(0)
+          .optional()
+          .messages({
+            'number.base': 'Total weight must be a number',
+            'number.min': 'Total weight cannot be negative'
+          }),
+        bundleDetails: Joi.array()
+          .items(bundleDetailSchema)
+          .min(1)
           .required()
           .messages({
-            'number.base': 'Weight per bundle must be a number',
-            'number.min': 'Weight per bundle cannot be negative',
-            'any.required': 'Weight per bundle is required'
+            'any.required': 'Bundle details are required for each product'
           })
       })
     )
+    .min(1)
     .required()
     .messages({
+      'array.min': 'At least one product load entry is required',
       'any.required': 'Product loads are required'
+    }),
+
+  notes: Joi.string()
+    .trim()
+    .allow('')
+    .max(500)
+    .optional()
+    .messages({
+      'string.max': 'Notes cannot exceed 500 characters'
     })
 });
 
