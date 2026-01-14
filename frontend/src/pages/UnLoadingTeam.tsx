@@ -135,7 +135,7 @@ const fetchOrders = useCallback(async () => {
   const filteredOrders = orders.filter(order =>
     order.orderNumber.toString().includes(searchTerm) ||
     order.customerOrSupplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase())
+    (order.vehicle?.number && order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -295,8 +295,14 @@ const OrdersTable: React.FC<{
       title: 'Vehicle',
       render: (_: any, record: Order) => (
         <div>
-          <div className="font-medium">{record.vehicle.number}</div>
-          <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+          {record.vehicle?.number ? (
+            <>
+              <div className="font-medium">{record.vehicle.number}</div>
+              <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+            </>
+          ) : (
+            <span className="text-sm text-gray-400 italic">Not added</span>
+          )}
         </div>
       ),
     },
@@ -497,7 +503,7 @@ const ActionModal: React.FC<{
             <div className="bg-yellow-50 p-4 rounded-lg">
               <h4 className="font-medium text-yellow-900">Record Empty Weight</h4>
               <p className="text-sm text-yellow-700 mt-1">
-                Vehicle: {order.vehicle.number} | Driver: {order.vehicle.driverName}
+                Vehicle: {order.vehicle?.number || 'Not added'} | Driver: {order.vehicle?.driverName || 'N/A'}
               </p>
             </div>
             <Input

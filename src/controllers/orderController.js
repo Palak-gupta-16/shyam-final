@@ -2,10 +2,10 @@ const { Order, Inventory } = require('../models');
 const { getNextSequence } = require('../utils/counter');
 const { canTransition, getInitialState } = require('../utils/stateMachine');
 
-// Create new order with robust inventory management
+// Create new order WITHOUT vehicle details (added later)
 const createOrder = async (req, res) => {
   try {
-    const { type, customerOrSupplier, vehicle, products } = req.body;
+    const { type, customerOrSupplier, products } = req.body;
     console.log('Creating order:', req.body);
 
     // Generate order number
@@ -96,13 +96,12 @@ const createOrder = async (req, res) => {
       processedProducts.push(processedProduct);
     }
 
-    // Create order
+    // Create order WITHOUT vehicle details
     const order = new Order({
       orderNumber,
       type,
       status: initialStatus,
       customerOrSupplier,
-      vehicle,
       products: processedProducts,
       createdBy: req.user._id,
       isBlocked: isOrderBlocked,
@@ -1201,6 +1200,206 @@ const exitOrder = async (req, res) => {
   }
 };
 
+// Add vehicle details to order (NEW - called after order creation)
+const addVehicleDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { vehicle } = req.body;
+
+    if (!vehicle || !vehicle.number || !vehicle.driverName || !vehicle.driverNumber) {
+      return res.status(400).json({ message: 'Complete vehicle details are required (number, driverName, driverNumber)' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (order.vehicle && order.vehicle.number) {
+      return res.status(400).json({ message: 'Vehicle details already added to this order' });
+    }
+
+    // Add vehicle details
+    order.vehicle = {
+      number: vehicle.number,
+      driverName: vehicle.driverName,
+      driverNumber: vehicle.driverNumber,
+      addedAt: new Date()
+    };
+
+    order.history.push({
+      by: req.user._id,
+      from: order.status,
+      to: order.status,
+      note: `Vehicle details added: ${vehicle.number}`,
+      at: new Date()
+    });
+
+    await order.save();
+
+    res.json({
+      message: 'Vehicle details added successfully',
+      order
+    });
+
+  } catch (error) {
+    console.error('Add vehicle details error:', error);
+    res.status(500).json({ message: 'Server error adding vehicle details' });
+  }
+};
+
+// Update fare details in invoice (NEW)
+const updateFareDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fareAmount, paidBy, fareNotes } = req.body;
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (!fareAmount || fareAmount <= 0) {
+      return res.status(400).json({ message: 'Valid fare amount is required' });
+    }
+
+    if (!paidBy || !['our_side', 'other_party'].includes(paidBy)) {
+      return res.status(400).json({ message: 'Fare paidBy must be either "our_side" or "other_party"' });
+    }
+
+    // Initialize invoice if it doesn't exist
+    if (!order.invoice) {
+      order.invoice = {};
+    }
+
+    // Add fare details
+    order.invoice.fare = {
+      amount: fareAmount,
+      paidBy: paidBy,
+      notes: fareNotes || ''
+    };
+
+    order.history.push({
+      by: req.user._id,
+      from: order.status,
+      to: order.status,
+      note: `Fare details updated: ₹${fareAmount} (${paidBy})`,
+      at: new Date()
+    });
+
+    await order.save();
+
+    res.json({
+      message: 'Fare details updated successfully',
+      order
+    });
+
+  } catch (error) {
+    console.error('Update fare details error:', error);
+    res.status(500).json({ message: 'Server error updating fare details' });
+  }
+};
+
+// Update order (NEW - for editing orders)
+const updateOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { customerOrSupplier, products, vehicle } = req.body;
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // Only allow editing before guard approval
+    if (order.status !== 'pending_guard_approval') {
+      return res.status(400).json({ message: 'Orders can only be edited before guard approval' });
+    }
+
+    // Update fields if provided
+    if (customerOrSupplier) {
+      order.customerOrSupplier = customerOrSupplier;
+    }
+
+    if (vehicle) {
+      order.vehicle = {
+        ...order.vehicle,
+        ...vehicle,
+        addedAt: order.vehicle?.addedAt || new Date()
+      };
+    }
+
+    if (products && Array.isArray(products)) {
+      // Release previously reserved inventory
+      for (const product of order.products) {
+        if (product.inventoryItemId && product.quantityFulfilled > 0) {
+          const inventoryItem = await Inventory.findById(product.inventoryItemId);
+          if (inventoryItem) {
+            inventoryItem.releaseReservedQuantity(product.quantityFulfilled);
+            await inventoryItem.save();
+          }
+        }
+      }
+
+      // Process new products (similar to create order)
+      const processedProducts = [];
+      for (const product of products) {
+        if (!product.inventoryItemId) {
+          return res.status(400).json({ message: 'All products must have inventory item selected' });
+        }
+
+        const inventoryItem = await Inventory.findById(product.inventoryItemId);
+        if (!inventoryItem) {
+          return res.status(400).json({ message: `Inventory item not found for product: ${product.name}` });
+        }
+
+        const processedProduct = {
+          inventoryItemId: inventoryItem._id,
+          name: inventoryItem.name,
+          dimensions: inventoryItem.dimensions,
+          length: product.length || '',
+          quantity: product.quantity,
+          quantityFulfilled: 0,
+          quantityPending: product.quantity,
+          unit: inventoryItem.unit
+        };
+
+        if (order.type === 'dispatch') {
+          if (inventoryItem.availableQuantity >= product.quantity) {
+            inventoryItem.reserveQuantity(product.quantity);
+            processedProduct.quantityFulfilled = product.quantity;
+            processedProduct.quantityPending = 0;
+            await inventoryItem.save();
+          }
+        }
+
+        processedProducts.push(processedProduct);
+      }
+
+      order.products = processedProducts;
+    }
+
+    order.history.push({
+      by: req.user._id,
+      from: order.status,
+      to: order.status,
+      note: 'Order details updated',
+      at: new Date()
+    });
+
+    await order.save();
+
+    res.json({
+      message: 'Order updated successfully',
+      order
+    });
+
+  } catch (error) {
+    console.error('Update order error:', error);
+    res.status(500).json({ message: 'Server error updating order' });
+  }
+};
+
 module.exports = {
   createOrder,
   getOrders,
@@ -1210,6 +1409,9 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
   guardApprove,
+  addVehicleDetails,
+  updateFareDetails,
+  updateOrder,
   recordEmptyWeight,
   readyForLoading,
   readyForUnloading,

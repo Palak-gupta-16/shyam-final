@@ -50,7 +50,7 @@ const createOrderSchema = Joi.object({
         'string.min': 'Driver name must be at least 2 characters long',
         'string.max': 'Driver name cannot exceed 100 characters'
       })
-  }).required(),
+  }).optional(),
   
   
   
@@ -311,6 +311,89 @@ const generateInvoiceSchema = Joi.object({
 });
 
 
+const addVehicleDetailsSchema = Joi.object({
+  vehicle: Joi.object({
+    number: Joi.string()
+      .trim()
+      .min(4)
+      .max(20)
+      .required()
+      .messages({
+        'string.empty': 'Vehicle number is required',
+        'string.min': 'Vehicle number must be at least 4 characters long',
+        'string.max': 'Vehicle number cannot exceed 20 characters'
+      }),
+    driverNumber: Joi.string()
+      .pattern(/^[0-9]{10}$/)
+      .required()
+      .messages({
+        'string.empty': 'Driver phone number is required',
+        'string.pattern.base': 'Driver phone number must be a valid 10-digit number'
+      }),
+    driverName: Joi.string()
+      .trim()
+      .min(2)
+      .max(100)
+      .required()
+      .messages({
+        'string.empty': 'Driver name is required',
+        'string.min': 'Driver name must be at least 2 characters long',
+        'string.max': 'Driver name cannot exceed 100 characters'
+      })
+  }).required()
+});
+
+const updateFareDetailsSchema = Joi.object({
+  amount: Joi.number()
+    .min(0)
+    .required()
+    .messages({
+      'number.base': 'Fare amount must be a number',
+      'number.min': 'Fare amount cannot be negative',
+      'any.required': 'Fare amount is required'
+    }),
+  paidBy: Joi.string()
+    .valid('our_side', 'other_party')
+    .required()
+    .messages({
+      'any.only': 'Paid by must be either our_side or other_party',
+      'any.required': 'Paid by is required'
+    }),
+  notes: Joi.string()
+    .trim()
+    .max(500)
+    .allow('')
+    .optional()
+    .messages({
+      'string.max': 'Notes cannot exceed 500 characters'
+    })
+});
+
+const updateOrderSchema = Joi.object({
+  customerOrSupplier: Joi.string()
+    .trim()
+    .min(2)
+    .max(200)
+    .messages({
+      'string.min': 'Customer or supplier name must be at least 2 characters long',
+      'string.max': 'Customer or supplier name cannot exceed 200 characters'
+    }),
+  products: Joi.array()
+    .items(
+      Joi.object({
+        inventoryItemId: Joi.string().trim().required(),
+        name: Joi.string().trim().min(2).max(200).required(),
+        dimensions: Joi.string().trim().max(100).allow(''),
+        length: Joi.string().trim().max(50).allow(''),
+        quantity: Joi.number().integer().min(1).required()
+      })
+    )
+    .min(1)
+    .messages({
+      'array.min': 'At least one product is required'
+    })
+});
+
 const orderQuerySchema = Joi.object({
   status: Joi.string()
     .trim()
@@ -353,5 +436,8 @@ module.exports = {
   finalWeightSchema,
   loadingCompleteSchema,
   generateInvoiceSchema,
+  addVehicleDetailsSchema,
+  updateFareDetailsSchema,
+  updateOrderSchema,
   orderQuerySchema
 };

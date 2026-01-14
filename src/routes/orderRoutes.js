@@ -30,6 +30,27 @@ router.patch('/:id/guard-approve',
   orderController.guardApprove
 );
 
+// Add vehicle details (NEW - after order creation)
+router.patch('/:id/vehicle-details',
+  authorize('Store_Keeper', 'Purchasing', 'General_Manager', 'Director', 'Guard'),
+  logActivity('ORDER_ADD_VEHICLE', 'Order'),
+  orderController.addVehicleDetails
+);
+
+// Update fare details (NEW - in billing phase)
+router.patch('/:id/fare-details',
+  authorize('Accounting', 'Director'),
+  logActivity('ORDER_UPDATE_FARE', 'Order'),
+  orderController.updateFareDetails
+);
+
+// Update/Edit order (NEW)
+router.patch('/:id',
+  authorize('Store_Keeper', 'Purchasing', 'General_Manager', 'Director'),
+  logActivity('ORDER_UPDATE', 'Order'),
+  orderController.updateOrder
+);
+
 // Record empty weight
 router.post('/:id/weight/empty',
   authorize('Weighbridge','Director'),

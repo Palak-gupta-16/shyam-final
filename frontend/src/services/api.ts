@@ -189,6 +189,34 @@ getOrdersByStatus: async (params?: {
     const response: AxiosResponse<Order> = await api.get(`/orders/${orderId}`);
     return response.data;
   },
+
+  // NEW: Add vehicle details to order
+  addVehicleDetails: async (orderId: string, data: {
+    vehicle: {
+      number: string;
+      driverName: string;
+      driverNumber: string;
+    };
+  }): Promise<ApiResponse<Order>> => {
+    const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}/vehicle-details`, data);
+    return response.data;
+  },
+
+  // NEW: Update fare details
+  updateFareDetails: async (orderId: string, data: {
+    fareAmount: number;
+    paidBy: 'our_side' | 'other_party';
+    fareNotes?: string;
+  }): Promise<ApiResponse<Order>> => {
+    const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}/fare-details`, data);
+    return response.data;
+  },
+
+  // NEW: Edit/Update order
+  updateOrder: async (orderId: string, data: Partial<CreateOrderForm>): Promise<ApiResponse<Order>> => {
+    const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}`, data);
+    return response.data;
+  },
 };
 
 // Inventory API
@@ -257,6 +285,21 @@ export const inventoryAPI = {
     });
     return response.data;
   },
+
+  // NEW: Edit inventory item
+  editInventoryItem: async (itemId: string, data: Partial<InventoryItem>): Promise<ApiResponse<InventoryItem>> => {
+    const response: AxiosResponse<ApiResponse<InventoryItem>> = await api.put(`/inventory/${itemId}`, data);
+    return response.data;
+  },
+
+  // NEW: Add size to finished product
+  addSizeToFinishedProduct: async (itemId: string, data: {
+    dimension: string;
+    quantity: number;
+  }): Promise<ApiResponse<InventoryItem>> => {
+    const response: AxiosResponse<ApiResponse<InventoryItem>> = await api.post(`/inventory/${itemId}/add-size`, data);
+    return response.data;
+  },
 };
 
 // Gate Pass API
@@ -301,9 +344,21 @@ export const millAPI = {
   createHourlyReport: async (data: {
     date: string;
     hour: number;
-    billetSize: string;
-    piecesProduced: number;
-    missRolls: number;
+    finalProducts: Array<{
+      productId: string;
+      dimension?: string;
+      quantity: number;
+    }>;
+    rawMaterialsConsumed?: Array<{
+      materialId: string;
+      quantity: number;
+      unit?: string;
+    }>;
+    wasteProducts?: Array<{
+      wasteId: string;
+      quantity: number;
+      unit?: string;
+    }>;
     breakdowns?: string[];
     shift?: string;
     operatorName?: string;
@@ -333,6 +388,31 @@ export const millAPI = {
     remarks?: string;
   }): Promise<ApiResponse<MillDailySummary>> => {
     const response: AxiosResponse<ApiResponse<MillDailySummary>> = await api.post('/mill/daily', data);
+    return response.data;
+  },
+
+  // NEW: Edit hourly report
+  editHourlyReport: async (reportId: string, data: Partial<{
+    finalProducts: Array<any>;
+    rawMaterialsConsumed: Array<any>;
+    wasteProducts: Array<any>;
+    breakdowns: string[];
+    shift: string;
+    operatorName: string;
+    remarks: string;
+  }>): Promise<ApiResponse<MillHourlyReport>> => {
+    const response: AxiosResponse<ApiResponse<MillHourlyReport>> = await api.put(`/mill/hourly/${reportId}`, data);
+    return response.data;
+  },
+
+  // NEW: Edit daily summary
+  editDailySummary: async (summaryId: string, data: Partial<{
+    breakdownSummary: string;
+    productionHours: number;
+    efficiency: number;
+    remarks: string;
+  }>): Promise<ApiResponse<MillDailySummary>> => {
+    const response: AxiosResponse<ApiResponse<MillDailySummary>> = await api.put(`/mill/daily/${summaryId}`, data);
     return response.data;
   },
 

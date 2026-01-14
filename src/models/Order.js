@@ -41,18 +41,21 @@ const orderSchema = new mongoose.Schema({
   vehicle: {
     number: {
       type: String,
-      required: true,
+      required: false,
       trim: true
     },
     driverName: {
       type: String,
-      required: true,
+      required: false,
       trim: true
     },
     driverNumber: {
       type: String,
-      required: true,
+      required: false,
       trim: true
+    },
+    addedAt: {
+      type: Date
     }
   },
   products: [{
@@ -186,12 +189,27 @@ const orderSchema = new mongoose.Schema({
       trim: true
     },
     RatePerUnit:{
-type:Number,
-min:0
+      type:Number,
+      min:0
     },
     TaxPercentage:{
       type:Number,
       min:0
+    },
+    fare: {
+      amount: {
+        type: Number,
+        min: 0
+      },
+      paidBy: {
+        type: String,
+        enum: ['our_side', 'other_party'],
+        trim: true
+      },
+      notes: {
+        type: String,
+        trim: true
+      }
     },
     invoiceNotes: {
       type: String,

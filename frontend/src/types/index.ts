@@ -29,10 +29,11 @@ export interface Order {
   type: 'dispatch' | 'purchase';
   status: OrderStatus;
   customerOrSupplier: string;
-  vehicle: {
-    number: string;
-    driverName: string;
+  vehicle?: {
+    number?: string;
+    driverName?: string;
     driverNumber?: string;
+    addedAt?: string;
   };
   products: Product[];
   weights?: {
@@ -54,6 +55,11 @@ export interface Order {
     amount?: number;
     RatePerUnit?: number;
     TaxPercentage?: number;
+    fare?: {
+      amount?: number;
+      paidBy?: 'our_side' | 'other_party';
+      notes?: string;
+    };
     invoiceNotes?: string;
     pdfUrl?: string;
   };
@@ -136,13 +142,20 @@ export interface OrderHistory {
 }
 
 // Inventory types
+export interface InventorySize {
+  dimension: string;
+  quantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+}
+
 export interface InventoryItem {
   _id: string;
-  sku: string;
   type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
   status: 'available' | 'needed' | 'low_stock' | 'out_of_stock' | 'blocked';
   name: string;
   dimensions?: string;
+  sizes?: InventorySize[];
   quantity: number;
   unit: string;
   location?: string;
@@ -186,13 +199,34 @@ export interface GatePass {
 }
 
 // Mill Report types
+export interface FinalProduct {
+  productId?: string;
+  productName: string;
+  dimension?: string;
+  quantity: number;
+}
+
+export interface RawMaterialConsumed {
+  materialId?: string;
+  materialName: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface WasteProduct {
+  wasteId?: string;
+  wasteName: string;
+  quantity: number;
+  unit: string;
+}
+
 export interface MillHourlyReport {
   _id: string;
   date: string;
   hour: number;
-  billetSize: string;
-  piecesProduced: number;
-  missRolls: number;
+  finalProducts?: FinalProduct[];
+  rawMaterialsConsumed?: RawMaterialConsumed[];
+  wasteProducts?: WasteProduct[];
   breakdowns: string[];
   createdBy: User;
   shift?: string;
@@ -316,13 +350,7 @@ export interface RegisterForm {
 export interface CreateOrderForm {
   type: 'dispatch' | 'purchase';
   customerOrSupplier: string;
-  vehicle: {
-    number: string;
-    driverName: string;
-    driverNumber: string;
-  };
   products: Product[];
-  productLoads?: ProductLoad[];
 }
 
 // Component props types

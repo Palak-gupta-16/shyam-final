@@ -166,13 +166,33 @@ const OrderCard: React.FC<OrderCardProps> = ({
               <div className="p-2 bg-blue-50 rounded-lg">
                 <Truck className="h-4 w-4 text-blue-600" />
               </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {order.vehicle.number}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Driver: {order.vehicle.driverName}
-                </p>
+              <div className="flex-1">
+                {order.vehicle?.number ? (
+                  <>
+                    <p className="text-sm font-medium text-gray-900">
+                      {order.vehicle.number}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Driver: {order.vehicle.driverName}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-gray-400 italic">
+                      No vehicle added
+                    </p>
+                    {hasRole(['Guard', 'Director']) && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onActionClick?.('add-vehicle', order._id)}
+                        className="mt-1"
+                      >
+                        Add Vehicle Details
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
 

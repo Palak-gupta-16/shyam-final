@@ -82,6 +82,21 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
       let processedData: any = { ...formData };
 
       switch (actionType) {
+        case 'add-vehicle': {
+          if (!formData.vehicleNumber || !formData.driverName || !formData.driverNumber) {
+            setFormErrors(['Please fill all vehicle details.']);
+            setLoading(false);
+            return;
+          }
+          processedData = {
+            vehicle: {
+              number: formData.vehicleNumber.trim(),
+              driverName: formData.driverName.trim(),
+              driverNumber: formData.driverNumber.trim(),
+            }
+          };
+          break;
+        }
         case 'generate-invoice': {
           const amountValue = Number(formData.amount) || 0;
           if (!amountValue || Number.isNaN(amountValue) || amountValue <= 0) {
@@ -181,10 +196,17 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
       setLoading(false);
       setFormData({});
       setLoadingFormState(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Order action error:', error);
       setLoading(false);
-      setFormErrors(['Failed to execute action. Please try again.']);
+      if (error.response?.data?.errors) {
+        const errorMessages = error.response.data.errors.map((err: any) => 
+          `${err.field}: ${err.message}`
+        );
+        setFormErrors([error.response.data.message || 'Validation error', ...errorMessages]);
+      } else {
+        setFormErrors([error.response?.data?.message || 'Failed to execute action. Please try again.']);
+      }
     }
   };
 
@@ -194,6 +216,41 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
     }
 
     switch (actionType) {
+      case 'add-vehicle':
+        return (
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h4 className="font-medium text-blue-900">Add Vehicle Details</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Add vehicle and driver details for Order #{order.orderNumber}.
+              </p>
+            </div>
+            <Input
+              label="Vehicle Number"
+              value={formData.vehicleNumber || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, vehicleNumber: e.target.value }))}
+              required
+              placeholder="e.g., GJ01AB1234"
+            />
+            <Input
+              label="Driver Name"
+              value={formData.driverName || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, driverName: e.target.value }))}
+              required
+              placeholder="Enter driver name"
+            />
+            <Input
+              label="Driver Phone Number"
+              type="tel"
+              value={formData.driverNumber || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, driverNumber: e.target.value }))}
+              required
+              pattern="[0-9]{10}"
+              placeholder="e.g., 9876543210"
+            />
+          </div>
+        );
+
       case 'guard-approve':
         return (
           <div className="space-y-4">
@@ -222,7 +279,7 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
             <div className="bg-yellow-50 p-4 rounded-lg">
               <h4 className="font-medium text-yellow-900">Record Empty Weight</h4>
               <p className="text-sm text-yellow-700 mt-1">
-                Vehicle: {order.vehicle.number} | Driver: {order.vehicle.driverName}
+                Vehicle: {order.vehicle?.number || 'Not added'} | Driver: {order.vehicle?.driverName || 'N/A'}
               </p>
             </div>
             <Input

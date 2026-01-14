@@ -1,25 +1,108 @@
 const { MillHourlyReport, MillDailySummary, Inventory } = require('../models');
 const { checkAndFulfillBlockedOrders } = require('./inventoryController');
 
-// Create hourly report
+// Create hourly report with new structure (final products, raw materials, waste)
 const createHourlyReport = async (req, res) => {
   try {
-    const { date, hour, billetSize, piecesProduced, missRolls, breakdowns, shift, operatorName, remarks } = req.body;
+    const { date, hour, finalProducts, rawMaterialsConsumed, wasteProducts, breakdowns, shift, operatorName, remarks } = req.body;
 
-    // Check if report already exists for this date and hour
-    const existingReport = await MillHourlyReport.findOne({ date, hour });
-    if (existingReport) {
-      return res.status(400).json({ 
-        message: 'Hourly report already exists for this date and hour' 
+    // Validate final products
+    if (!finalProducts || !Array.isArray(finalProducts) || finalProducts.length === 0) {
+      return res.status(400).json({ message: 'At least one final product is required' });
+    }
+
+    // Process and validate final products
+    const processedFinalProducts = [];
+    for (const product of finalProducts) {
+      if (!product.productId) {
+        return res.status(400).json({ message: 'Product ID is required for each final product' });
+      }
+
+      const inventoryItem = await Inventory.findById(product.productId);
+      if (!inventoryItem || inventoryItem.type !== 'finished_product') {
+        return res.status(400).json({ message: 'Invalid finished product selected' });
+      }
+
+      processedFinalProducts.push({
+        productId: inventoryItem._id,
+        productName: inventoryItem.name,
+        dimension: product.dimension || '',
+        quantity: product.quantity || 0
       });
+
+      // Add quantity to inventory
+      inventoryItem.quantity += product.quantity || 0;
+      inventoryItem.lastUpdatedBy = req.user._id;
+      await inventoryItem.save();
+    }
+
+    // Process and validate raw materials consumed
+    const processedRawMaterials = [];
+    if (rawMaterialsConsumed && Array.isArray(rawMaterialsConsumed)) {
+      for (const material of rawMaterialsConsumed) {
+        if (!material.materialId) {
+          return res.status(400).json({ message: 'Material ID is required for each raw material' });
+        }
+
+        const inventoryItem = await Inventory.findById(material.materialId);
+        if (!inventoryItem || inventoryItem.type !== 'raw_material') {
+          return res.status(400).json({ message: 'Invalid raw material selected' });
+        }
+
+        // Check availability
+        if (inventoryItem.quantity < (material.quantity || 0)) {
+          return res.status(400).json({ 
+            message: `Insufficient ${inventoryItem.name}. Available: ${inventoryItem.quantity}, Required: ${material.quantity}` 
+          });
+        }
+
+        processedRawMaterials.push({
+          materialId: inventoryItem._id,
+          materialName: inventoryItem.name,
+          quantity: material.quantity || 0,
+          unit: material.unit || inventoryItem.unit
+        });
+
+        // Subtract from inventory
+        inventoryItem.quantity -= material.quantity || 0;
+        inventoryItem.lastUpdatedBy = req.user._id;
+        await inventoryItem.save();
+      }
+    }
+
+    // Process waste products
+    const processedWasteProducts = [];
+    if (wasteProducts && Array.isArray(wasteProducts)) {
+      for (const waste of wasteProducts) {
+        if (!waste.wasteId) {
+          return res.status(400).json({ message: 'Waste ID is required for each waste product' });
+        }
+
+        const inventoryItem = await Inventory.findById(waste.wasteId);
+        if (!inventoryItem || inventoryItem.type !== 'waste_material') {
+          return res.status(400).json({ message: 'Invalid waste product selected' });
+        }
+
+        processedWasteProducts.push({
+          wasteId: inventoryItem._id,
+          wasteName: inventoryItem.name,
+          quantity: waste.quantity || 0,
+          unit: waste.unit || inventoryItem.unit
+        });
+
+        // Add to inventory
+        inventoryItem.quantity += waste.quantity || 0;
+        inventoryItem.lastUpdatedBy = req.user._id;
+        await inventoryItem.save();
+      }
     }
 
     const report = new MillHourlyReport({
       date,
       hour,
-      billetSize,
-      piecesProduced,
-      missRolls,
+      finalProducts: processedFinalProducts,
+      rawMaterialsConsumed: processedRawMaterials,
+      wasteProducts: processedWasteProducts,
       breakdowns,
       shift,
       operatorName,
@@ -28,12 +111,10 @@ const createHourlyReport = async (req, res) => {
     });
 
     await report.save();
-
-    // Populate the createdBy field for response
     await report.populate('createdBy', 'name alias role');
 
     res.status(201).json({
-      message: 'Hourly report created',
+      message: 'Hourly report created and inventory updated',
       report
     });
 
@@ -651,6 +732,74 @@ const getDailySummaries = async (req, res) => {
   }
 };
 
+// Edit hourly report (NEW)
+const editHourlyReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { finalProducts, rawMaterialsConsumed, wasteProducts, breakdowns, shift, operatorName, remarks } = req.body;
+
+    const report = await MillHourlyReport.findById(id);
+    if (!report) {
+      return res.status(404).json({ message: 'Report not found' });
+    }
+
+    // Update editable fields
+    if (breakdowns !== undefined) report.breakdowns = breakdowns;
+    if (shift) report.shift = shift;
+    if (operatorName !== undefined) report.operatorName = operatorName;
+    if (remarks !== undefined) report.remarks = remarks;
+
+    // Note: finalProducts, rawMaterialsConsumed, and wasteProducts can be edited
+    // but inventory adjustments should be handled carefully
+    if (finalProducts) report.finalProducts = finalProducts;
+    if (rawMaterialsConsumed) report.rawMaterialsConsumed = rawMaterialsConsumed;
+    if (wasteProducts) report.wasteProducts = wasteProducts;
+
+    await report.save();
+    await report.populate('createdBy', 'name alias');
+
+    res.json({
+      message: 'Hourly report updated',
+      report
+    });
+
+  } catch (error) {
+    console.error('Edit hourly report error:', error);
+    res.status(500).json({ message: 'Server error updating report' });
+  }
+};
+
+// Edit daily summary (NEW)
+const editDailySummary = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { breakdownSummary, productionHours, efficiency, remarks } = req.body;
+
+    const summary = await MillDailySummary.findById(id);
+    if (!summary) {
+      return res.status(404).json({ message: 'Summary not found' });
+    }
+
+    // Update editable fields
+    if (breakdownSummary !== undefined) summary.breakdownSummary = breakdownSummary;
+    if (productionHours !== undefined) summary.productionHours = productionHours;
+    if (efficiency !== undefined) summary.efficiency = efficiency;
+    if (remarks !== undefined) summary.remarks = remarks;
+
+    await summary.save();
+    await summary.populate('createdBy', 'name alias');
+
+    res.json({
+      message: 'Daily summary updated',
+      summary
+    });
+
+  } catch (error) {
+    console.error('Edit daily summary error:', error);
+    res.status(500).json({ message: 'Server error updating summary' });
+  }
+};
+
 module.exports = {
   createHourlyReport,
   createDailySummary,
@@ -658,5 +807,7 @@ module.exports = {
   getAvailableFinishedProducts,
   stockTake,
   getHourlyReports,
-  getDailySummaries
+  getDailySummaries,
+  editHourlyReport,
+  editDailySummary
 };

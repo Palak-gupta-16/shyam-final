@@ -20,6 +20,7 @@ import Modal from '../components/common/Modal';
 import Badge from '../components/common/Badge';
 import { inventoryAPI } from '../services/api';
 import { InventoryItem } from '../types';
+import { extractApiError } from '../utils/errorHandling';
 
 const Inventory: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -66,7 +67,6 @@ const Inventory: React.FC = () => {
     if (searchTerm) {
       filtered = filtered.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.description?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
@@ -115,28 +115,20 @@ const Inventory: React.FC = () => {
 
   const columns = [
     {
-      key: 'sku',
-      title: 'SKU',
+      key: 'name',
+      title: 'Item Name',
       sortable: true,
       render: (value: string, record: InventoryItem) => (
         <div className="flex items-center space-x-2">
           <div className="p-1 bg-gray-100 rounded">
             {getTypeIcon(record.type)}
           </div>
-          <span className="font-medium">{value}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'name',
-      title: 'Item Name',
-      sortable: true,
-      render: (value: string, record: InventoryItem) => (
-        <div>
-          <div className="font-medium text-gray-900">{value}</div>
-          {record.dimensions && (
-            <div className="text-sm text-gray-500">{record.dimensions}</div>
-          )}
+          <div>
+            <div className="font-medium text-gray-900">{value}</div>
+            {record.dimensions && (
+              <div className="text-sm text-gray-500">{record.dimensions}</div>
+            )}
+          </div>
         </div>
       ),
     },
@@ -280,7 +272,7 @@ const Inventory: React.FC = () => {
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
                 <Input
-                  placeholder="Search by name, SKU, or description..."
+                  placeholder="Search by name or description..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   icon={Search}
@@ -369,7 +361,6 @@ const AddItemModal: React.FC<{
   onSuccess: () => void;
 }> = ({ isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState<{
-    sku: string;
     type: 'finished_product' | 'raw_material' | 'store_item' | 'waste_material';
     status: 'available' | 'needed' | 'low_stock' | 'out_of_stock';
     name: string;
@@ -380,8 +371,8 @@ const AddItemModal: React.FC<{
     location: string;
     description: string;
     minimumStock: number;
+    sizes: Array<{ dimension: string; quantity: number; reservedQuantity: number; availableQuantity: number }>;
   }>({
-    sku: '',
     type: 'finished_product',
     status: 'available',
     name: '',
@@ -392,17 +383,25 @@ const AddItemModal: React.FC<{
     location: '',
     description: '',
     minimumStock: 0,
+    sizes: [],
   });
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setLoading(true);
+      setErrorMessage('');
+      setFieldErrors({});
       await inventoryAPI.addInventoryItem(formData);
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding item:', error);
+      const { message, fieldErrors } = extractApiError(error);
+      setErrorMessage(message);
+      setFieldErrors(fieldErrors);
     } finally {
       setLoading(false);
     }
@@ -411,13 +410,21 @@ const AddItemModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add New Item" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Error Display */}
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800 font-medium">{errorMessage}</p>
+            {Object.keys(fieldErrors).length > 0 && (
+              <ul className="mt-2 text-red-700 text-sm space-y-1">
+                {Object.entries(fieldErrors).map(([field, message]) => (
+                  <li key={field}>• {field}: {message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="SKU"
-            value={formData.sku}
-            onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
-            required
-          />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
             <select
@@ -458,6 +465,7 @@ const AddItemModal: React.FC<{
             label="Dimensions"
             value={formData.dimensions}
             onChange={(e) => setFormData(prev => ({ ...prev, dimensions: e.target.value }))}
+            required={formData.type !== 'finished_product'}
           />
           <Input
             label="Location"
@@ -472,27 +480,87 @@ const AddItemModal: React.FC<{
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <Input
-            label="Quantity"
-            type="number"
-            value={formData.quantity}
-            onChange={(e) => setFormData(prev => ({ ...prev, quantity: Number(e.target.value) }))}
-            required
-          />
-          <Input
-            label="Unit"
-            value={formData.unit}
-            onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-          />
-          <Input
-            label="Minimum Stock"
-            type="number"
-            value={formData.minimumStock}
-            onChange={(e) => setFormData(prev => ({ ...prev, minimumStock: Number(e.target.value) }))}
-          />
-          
-        </div>
+        {/* For Finished Products: Multiple Sizes */}
+        {formData.type === 'finished_product' && (
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-gray-700">Sizes (Required for Finished Products)</label>
+            {formData.sizes.map((size, index) => (
+              <div key={index} className="flex gap-2">
+                <Input
+                  placeholder="Dimension (e.g., 8mm)"
+                  value={size.dimension}
+                  onChange={(e) => {
+                    const newSizes = [...formData.sizes];
+                    newSizes[index].dimension = e.target.value;
+                    setFormData(prev => ({ ...prev, sizes: newSizes }));
+                  }}
+                  required
+                />
+                <Input
+                  type="number"
+                  placeholder="Quantity"
+                  value={size.quantity}
+                  onChange={(e) => {
+                    const newSizes = [...formData.sizes];
+                    const qty = Number(e.target.value);
+                    newSizes[index].quantity = qty;
+                    newSizes[index].availableQuantity = qty; // Initially all quantity is available
+                    setFormData(prev => ({ ...prev, sizes: newSizes }));
+                  }}
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    const newSizes = formData.sizes.filter((_, i) => i !== index);
+                    setFormData(prev => ({ ...prev, sizes: newSizes }));
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setFormData(prev => ({
+                  ...prev,
+                  sizes: [...prev.sizes, { dimension: '', quantity: 0, reservedQuantity: 0, availableQuantity: 0 }]
+                }));
+              }}
+            >
+              Add Size
+            </Button>
+          </div>
+        )}
+
+        {/* For Non-Finished Products: Single Quantity */}
+        {formData.type !== 'finished_product' && (
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              label="Quantity"
+              type="number"
+              value={formData.quantity}
+              onChange={(e) => setFormData(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+              required
+            />
+            <Input
+              label="Unit"
+              value={formData.unit}
+              onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+            />
+            <Input
+              label="Minimum Stock"
+              type="number"
+              value={formData.minimumStock}
+              onChange={(e) => setFormData(prev => ({ ...prev, minimumStock: Number(e.target.value) }))}
+            />
+          </div>
+        )}
 
         <Input
           label="Description"
@@ -522,15 +590,19 @@ const EditItemModal: React.FC<{
 }> = ({ isOpen, onClose, item, onSuccess }) => {
   const [quantity, setQuantity] = useState(item.quantity);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setLoading(true);
+      setErrorMessage('');
       await inventoryAPI.updateInventoryItem(item._id, { quantity });
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating item:', error);
+      const { message } = extractApiError(error);
+      setErrorMessage(message);
     } finally {
       setLoading(false);
     }
@@ -539,9 +611,15 @@ const EditItemModal: React.FC<{
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Update Quantity" size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-red-800 text-sm">{errorMessage}</p>
+          </div>
+        )}
+
         <div className="bg-gray-50 p-4 rounded-lg">
           <h4 className="font-medium text-gray-900">{item.name}</h4>
-          <p className="text-sm text-gray-600">SKU: {item.sku}</p>
+          <p className="text-sm text-gray-600">Type: {item.type}</p>
           <p className="text-sm text-gray-600">Current Quantity: {item.quantity} {item.unit}</p>
         </div>
 

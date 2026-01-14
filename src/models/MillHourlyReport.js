@@ -11,23 +11,69 @@ const millHourlyReportSchema = new mongoose.Schema({
     min: 0,
     max: 23
   },
-  billetSize: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  piecesProduced: {
-    type: Number,
-    required: true,
-    min: 0,
-    default: 0
-  },
-  missRolls: {
-    type: Number,
-    required: true,
-    min: 0,
-    default: 0
-  },
+  // Final products produced
+  finalProducts: [{
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Inventory'
+    },
+    productName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    dimension: {
+      type: String,
+      trim: true
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 0
+    }
+  }],
+  // Raw materials consumed
+  rawMaterialsConsumed: [{
+    materialId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Inventory'
+    },
+    materialName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    unit: {
+      type: String,
+      default: 'kg'
+    }
+  }],
+  // Waste products generated
+  wasteProducts: [{
+    wasteId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Inventory'
+    },
+    wasteName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    unit: {
+      type: String,
+      default: 'kg'
+    }
+  }],
   breakdowns: [{
     type: String,
     trim: true
@@ -55,7 +101,7 @@ const millHourlyReportSchema = new mongoose.Schema({
 });
 
 // Compound index to ensure one report per date-hour combination
-millHourlyReportSchema.index({ date: 1, hour: 1 }, { unique: true });
+millHourlyReportSchema.index({ date: 1, hour: 1 });
 millHourlyReportSchema.index({ createdBy: 1 });
 millHourlyReportSchema.index({ date: -1 });
 

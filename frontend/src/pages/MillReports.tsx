@@ -58,11 +58,11 @@ const fetchReports = useCallback(async () => {
 
   const getHourlyStats = () => {
     const totalProduction = hourlyReports.reduce(
-      (sum, r) => sum + (r.piecesProduced || 0),
+      (sum, r) => sum + (r.finalProducts?.reduce((acc, p) => acc + p.quantity, 0) || 0),
       0
     );
-    const totalMissRolls = hourlyReports.reduce(
-      (sum, r) => sum + (r.missRolls || 0),
+    const totalWaste = hourlyReports.reduce(
+      (sum, r) => sum + (r.wasteProducts?.reduce((acc, w) => acc + w.quantity, 0) || 0),
       0
     );
     const avgEfficiency =
@@ -79,8 +79,8 @@ const fetchReports = useCallback(async () => {
         color: 'primary' as const
       },
       {
-        title: 'Total Miss Rolls',
-        value: `${totalMissRolls.toLocaleString()}`,
+        title: 'Total Waste',
+        value: `${totalWaste.toLocaleString()}`,
         icon: Gauge,
         color: 'warning' as const
       },
@@ -139,9 +139,23 @@ const fetchReports = useCallback(async () => {
 
   const hourlyColumns = [
     { key: 'hour', title: 'Hour', render: (v: number) => `${v}:00` },
-    { key: 'billetSize', title: 'Billet Size' },
-    { key: 'piecesProduced', title: 'Pieces', align: 'right' as const },
-    { key: 'missRolls', title: 'Miss Rolls', align: 'right' as const },
+    { 
+      key: 'finalProducts', 
+      title: 'Final Products', 
+      render: (v: any[]) => v?.length ? `${v.length} items` : '0 items'
+    },
+    { 
+      key: 'rawMaterialsConsumed', 
+      title: 'Raw Materials', 
+      render: (v: any[]) => v?.length ? `${v.length} items` : '0 items',
+      align: 'right' as const 
+    },
+    { 
+      key: 'wasteProducts', 
+      title: 'Waste', 
+      render: (v: any[]) => v?.length ? `${v.length} items` : '0 items',
+      align: 'right' as const 
+    },
     { key: 'shift', title: 'Shift' },
     { key: 'operatorName', title: 'Operator' },
     { key: 'remarks', title: 'Remarks' }
@@ -226,37 +240,57 @@ const fetchReports = useCallback(async () => {
 
 const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate }) => {
   const [form, setForm] = useState({
-    date: defaultDate, hour: new Date().getHours(), billetSize: '', piecesProduced: 0,
-    missRolls: 0, shift: 'A', operatorName: '', remarks: ''
+    date: defaultDate, 
+    hour: new Date().getHours(), 
+    finalProducts: [] as Array<{ productId: string; dimension?: string; quantity: number }>,
+    rawMaterialsConsumed: [] as Array<{ materialId: string; quantity: number; unit?: string }>,
+    wasteProducts: [] as Array<{ wasteId: string; quantity: number; unit?: string }>,
+    shift: 'A', 
+    operatorName: '', 
+    remarks: ''
   });
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: any) => {
     e.preventDefault();
     setLoading(true);
-    await millAPI.createHourlyReport(form);
-    setLoading(false);
-    onSuccess();
-    onClose();
+    try {
+      await millAPI.createHourlyReport(form);
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error('Error creating hourly report:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Hourly Report" size="3xl">
       <form onSubmit={submit} className="space-y-4">
-
         <Input label="Date" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required />
-         <div className="grid grid-cols-3 gap-4">
-        <Input label="Hour" type="number" min={0} max={23} value={form.hour} onChange={e => setForm({...form, hour: Number(e.target.value)})} required />
-        <Input label="Billet Size" value={form.billetSize} onChange={e => setForm({...form, billetSize: e.target.value})} required />
-        <Input label="Pieces Produced" type="number" value={form.piecesProduced} onChange={e => setForm({...form, piecesProduced: Number(e.target.value)})} required />
+        <div className="grid grid-cols-3 gap-4">
+          <Input label="Hour" type="number" min={0} max={23} value={form.hour} onChange={e => setForm({...form, hour: Number(e.target.value)})} required />
+          <Input label="Shift" value={form.shift} onChange={e => setForm({...form, shift: e.target.value})} />
+          <Input label="Operator Name" value={form.operatorName} onChange={e => setForm({...form, operatorName: e.target.value})} />
         </div>
-         <div className="grid grid-cols-3 gap-4">
-        <Input label="Miss Rolls" type="number" value={form.missRolls} onChange={e => setForm({...form, missRolls: Number(e.target.value)})} required />
-        <Input label="Shift" value={form.shift} onChange={e => setForm({...form, shift: e.target.value})} />
-        <Input label="Operator Name" value={form.operatorName} onChange={e => setForm({...form, operatorName: e.target.value})} />
+        
+        {/* Note: Full product selection UI would go here - simplified for now */}
+        <div className="bg-blue-50 p-4 rounded">
+          <p className="text-sm text-blue-700">Note: This is a simplified form. Full product selection UI with dropdowns for final products, raw materials, and waste products needs to be implemented as per FRONTEND_UPDATES_SUMMARY.md</p>
         </div>
-        <textarea placeholder="Remarks" value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} />
-        <Button type="submit" className="fixed bottom-4 right-4 z-50" loading={loading}>Save</Button>
+        
+        <textarea 
+          placeholder="Remarks" 
+          value={form.remarks} 
+          onChange={e => setForm({...form, remarks: e.target.value})} 
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+          rows={3}
+        />
+        <div className="flex justify-end space-x-3">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={loading}>Save Report</Button>
+        </div>
       </form>
     </Modal>
   );

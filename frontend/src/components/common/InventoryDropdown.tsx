@@ -76,7 +76,6 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
 
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (item.dimensions && item.dimensions.toLowerCase().includes(searchTerm.toLowerCase()))
   ).filter(item => !(excludeIds || []).includes(item._id));
 
@@ -137,8 +136,7 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
                   {showStock && getStockIcon(selectedItem)}
                 </div>
                 <div className="text-sm text-gray-500 truncate">
-                  {selectedItem.sku}
-                  {selectedItem.dimensions && ` • ${selectedItem.dimensions}`}
+                  {selectedItem.dimensions || 'No dimensions'}
                 </div>
                 {showStock && (
                   <div className="text-xs text-gray-400">
@@ -204,7 +202,7 @@ const InventoryDropdown: React.FC<InventoryDropdownProps> = ({
                         {showStock && getStockIcon(item)}
                       </div>
                       <div className="text-sm text-gray-600 truncate">
-                        SKU: {item.sku}
+                        Type: {item.type}
                       </div>
                       {item.dimensions && (
                         <div className="text-sm text-gray-500 truncate">

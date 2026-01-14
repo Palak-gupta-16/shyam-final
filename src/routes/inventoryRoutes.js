@@ -29,6 +29,20 @@ router.patch('/:id',
   inventoryController.updateInventoryItem
 );
 
+// Edit full inventory item details (NEW)
+router.put('/:id',
+  authorize('General_Manager', 'Director', 'Store_Keeper'),
+  logActivity('INVENTORY_EDIT', 'Inventory'),
+  inventoryController.editInventoryItem
+);
+
+// Add size to finished product (NEW)
+router.post('/:id/add-size',
+  authorize('General_Manager', 'Director', 'Store_Keeper'),
+  logActivity('INVENTORY_ADD_SIZE', 'Inventory'),
+  inventoryController.addSizeToFinishedProduct
+);
+
 // Get inventory by type
 router.get('/type/:type',
   inventoryController.getInventoryByType

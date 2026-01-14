@@ -6,9 +6,12 @@ const {
   finalWeightSchema, 
   loadingCompleteSchema, 
   generateInvoiceSchema,
+  addVehicleDetailsSchema,
+  updateFareDetailsSchema,
+  updateOrderSchema,
   orderQuerySchema 
 } = require('./orderValidators');
-const { createInventorySchema, updateInventorySchema } = require('./inventoryValidators');
+const { createInventorySchema, updateInventorySchema, addSizeSchema } = require('./inventoryValidators');
 
 module.exports = {
   // Auth validators
@@ -21,9 +24,13 @@ module.exports = {
   finalWeightSchema,
   loadingCompleteSchema,
   generateInvoiceSchema,
+  addVehicleDetailsSchema,
+  updateFareDetailsSchema,
+  updateOrderSchema,
   orderQuerySchema,
   
   // Inventory validators
   createInventorySchema,
-  updateInventorySchema
+  updateInventorySchema,
+  addSizeSchema
 };

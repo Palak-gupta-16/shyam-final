@@ -119,7 +119,7 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
   const productKey = inventoryObject?._id
           || (typeof inventoryRef === 'string' ? inventoryRef : `${product.name}-${load.productIndex}`);
 
-        const skuLabel = inventoryObject?.sku
+        const skuLabel = inventoryObject?.name
           || (typeof inventoryRef === 'string' ? inventoryRef : inventoryObject?._id)
           || 'N/A';
 

@@ -22,6 +22,7 @@ import OrderActionModal from '../components/orders/OrderActionModal';
 import { ordersAPI } from '../services/api';
 import { Order, OrderStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError } from '../utils/errorHandling';
 
 const Orders: React.FC = () => {
   const { hasRole } = useAuth();
@@ -83,6 +84,9 @@ const Orders: React.FC = () => {
 
     try {
      switch (actionType) {
+      case 'add-vehicle':
+        await ordersAPI.addVehicleDetails(selectedOrder._id, actionData);
+        break;
       case 'guard-approve':
         await ordersAPI.guardApprove(selectedOrder._id);
         break;
@@ -162,7 +166,7 @@ const Orders: React.FC = () => {
   const filteredOrders = orders.filter(order =>
     order.orderNumber.toString().includes(searchTerm) ||
     order.customerOrSupplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase())
+    (order.vehicle?.number && order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -357,8 +361,14 @@ const OrdersTable: React.FC<{
       title: 'Vehicle',
       render: (_: any, record: Order) => (
         <div>
-          <div className="font-medium">{record.vehicle.number}</div>
-          <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+          {record.vehicle?.number ? (
+            <>
+              <div className="font-medium">{record.vehicle.number}</div>
+              <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+            </>
+          ) : (
+            <span className="text-sm text-gray-400 italic">Not added yet</span>
+          )}
         </div>
       ),
     },
@@ -442,14 +452,11 @@ const CreateOrderModal: React.FC<{
   const [formData, setFormData] = useState({
     type: 'dispatch' as 'dispatch' | 'purchase',
     customerOrSupplier: '',
-    vehicle: {
-      number: '',
-      driverName: '',
-      driverNumber: '',
-    },
     products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
   });
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const addProduct = () => {
     setFormData((prev) => ({
@@ -501,11 +508,6 @@ const CreateOrderModal: React.FC<{
       const processedData = {
         type: formData.type,
         customerOrSupplier: formData.customerOrSupplier,
-        vehicle: {
-          number: formData.vehicle.number,
-          driverName: formData.vehicle.driverName,
-          driverNumber: formData.vehicle.driverNumber,
-        },
         products: validProducts.map((product) => ({
           inventoryItemId: product.inventoryItemId,
           name: product.name,
@@ -525,12 +527,15 @@ const CreateOrderModal: React.FC<{
       setFormData({
         type: 'dispatch',
         customerOrSupplier: '',
-        vehicle: { number: '', driverName: '', driverNumber: '' },
         products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
       });
-    } catch (error) {
+      setErrorMessage('');
+      setFieldErrors({});
+    } catch (error: any) {
       console.error('Error creating order:', error);
-      // TODO: Show toast notification, e.g., toast.error('Failed to create order');
+      const { message, fieldErrors } = extractApiError(error);
+      setErrorMessage(message);
+      setFieldErrors(fieldErrors);
     } finally {
       setLoading(false);
     }
@@ -542,6 +547,20 @@ const CreateOrderModal: React.FC<{
     {/* Scrollable content */}
     <div className="overflow-y-auto pr-2 space-y-6 flex-1">
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Error Display */}
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800 font-medium">{errorMessage}</p>
+            {Object.keys(fieldErrors).length > 0 && (
+              <ul className="mt-2 text-red-700 text-sm space-y-1">
+                {Object.entries(fieldErrors).map(([field, message]) => (
+                  <li key={field}>• {field}: {message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {/* Order Type */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Order Type</label>
@@ -589,49 +608,6 @@ const CreateOrderModal: React.FC<{
           required
           placeholder="Enter name"
         />
-
-        {/* Vehicle Information */}
-        <div className="grid grid-cols-3 gap-4">
-          <Input
-            label="Vehicle Number"
-            value={formData.vehicle.number}
-            onChange={(e) =>
-              setFormData((prev) => ({
-                ...prev,
-                vehicle: { ...prev.vehicle, number: e.target.value },
-              }))
-            }
-            required
-            placeholder="e.g., GJ01AB1234"
-          />
-          <Input
-            label="Driver Name"
-            value={formData.vehicle.driverName}
-            onChange={(e) =>
-              setFormData((prev) => ({
-                ...prev,
-                vehicle: { ...prev.vehicle, driverName: e.target.value },
-              }))
-            }
-            required
-            placeholder="Enter driver name"
-          />
-          <Input
-            label="Driver Phone Number"
-            value={formData.vehicle.driverNumber}
-            onChange={(e) =>
-              setFormData((prev) => ({
-                ...prev,
-                vehicle: { ...prev.vehicle, driverNumber: e.target.value },
-              }))
-            }
-            required
-            type="tel"
-            pattern="[0-9]{10}"
-            title="Please enter a valid 10-digit phone number"
-            placeholder="e.g., 9876543210"
-          />
-        </div>
 
         {/* Products */}
         <div>

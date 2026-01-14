@@ -5,10 +5,7 @@ const getInventory = async (req, res) => {
   try {
     const { type, status, search, page = 1, limit = 50 } = req.query;
     
-    let filter = {
-      // Exclude system-generated needed items from regular inventory view
-      sku: { $not: { $regex: '^NEEDED-', $options: 'i' } }
-    };
+    let filter = {};
     
     if (type && type !== 'all') {
       filter.type = type;
@@ -21,7 +18,6 @@ const getInventory = async (req, res) => {
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } }
       ];
     }
@@ -56,30 +52,47 @@ const getInventory = async (req, res) => {
 // Add new inventory item
 const addInventoryItem = async (req, res) => {
   try {
-    const { sku, type, name, dimensions, quantity,length, unit, location, description, minimumStock, maxStock } = req.body;
+    const { type, name, dimensions, sizes, quantity, length, unit, location, description, minimumStock, maxStock } = req.body;
 
-    // Check if SKU already exists
-    const existingItem = await Inventory.findOne({ sku });
-    if (existingItem) {
-      return res.status(400).json({ message: 'SKU already exists' });
+    // Check if item already exists (by name and type)
+    const existingItem = await Inventory.findOne({ name, type });
+    if (existingItem && type !== 'finished_product') {
+      return res.status(400).json({ message: 'Item with this name and type already exists' });
     }
 
     // Create new inventory item
-    const item = new Inventory({
-      sku,
+    const itemData = {
       type,
       name,
-      dimensions,
-      quantity,
-length,
-      unit: unit || 'mt',
+      quantity: quantity || 0,
+      unit: unit || 'pieces',
       location,
       description,
       minimumStock: minimumStock || 0,
       maxStock,
       lastUpdatedBy: req.user._id
-    });
+    };
 
+    // For finished products with multiple sizes
+    if (type === 'finished_product' && sizes && Array.isArray(sizes) && sizes.length > 0) {
+      itemData.sizes = sizes.map(size => ({
+        dimension: size.dimension || '',
+        quantity: size.quantity || 0,
+        reservedQuantity: 0,
+        availableQuantity: size.quantity || 0
+      }));
+      // Calculate total quantity from sizes
+      itemData.quantity = sizes.reduce((sum, size) => sum + (size.quantity || 0), 0);
+    } else if (dimensions) {
+      // Single dimension for other types
+      itemData.dimensions = dimensions;
+    }
+
+    if (length) {
+      itemData.length = length;
+    }
+
+    const item = new Inventory(itemData);
     await item.save();
 
     // Populate the lastUpdatedBy field for response
@@ -94,7 +107,7 @@ length,
     console.error('Add inventory item error:', error);
     
     if (error.code === 11000) {
-      return res.status(400).json({ message: 'SKU already exists' });
+      return res.status(400).json({ message: 'Item already exists' });
     }
     
     if (error.name === 'ValidationError') {
@@ -230,11 +243,8 @@ const searchInventory = async (req, res) => {
     }
 
     let filter = {
-      // Exclude system-generated needed items
-      sku: { $not: { $regex: '^NEEDED-', $options: 'i' } },
       $or: [
         { name: { $regex: query, $options: 'i' } },
-        { sku: { $regex: query, $options: 'i' } },
         { description: { $regex: query, $options: 'i' } }
       ]
     };
@@ -394,10 +404,142 @@ const checkAndFulfillBlockedOrders = async (inventoryItem) => {
   }
 };
 
+// Edit/Update full inventory item details (NEW)
+const editInventoryItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, name, dimensions, sizes, quantity, length, unit, location, description, minimumStock, maxStock } = req.body;
+
+    const item = await Inventory.findById(id);
+    if (!item) {
+      return res.status(404).json({ message: 'Inventory item not found' });
+    }
+
+    // Update basic fields
+    if (type) item.type = type;
+    if (name) item.name = name;
+    if (unit) item.unit = unit;
+    if (location !== undefined) item.location = location;
+    if (description !== undefined) item.description = description;
+    if (minimumStock !== undefined) item.minimumStock = minimumStock;
+    if (maxStock !== undefined) item.maxStock = maxStock;
+    if (length !== undefined) item.length = length;
+
+    // Update dimensions for non-finished products
+    if (dimensions !== undefined && item.type !== 'finished_product') {
+      item.dimensions = dimensions;
+    }
+
+    // Update sizes for finished products
+    if (item.type === 'finished_product' && sizes && Array.isArray(sizes)) {
+      item.sizes = sizes.map(size => ({
+        dimension: size.dimension || '',
+        quantity: size.quantity || 0,
+        reservedQuantity: size.reservedQuantity || 0,
+        availableQuantity: (size.quantity || 0) - (size.reservedQuantity || 0)
+      }));
+      // Recalculate total quantity
+      item.quantity = sizes.reduce((sum, size) => sum + (size.quantity || 0), 0);
+    } else if (quantity !== undefined) {
+      // Validate that we don't go below reserved quantity
+      if (quantity < item.reservedQuantity) {
+        return res.status(400).json({ 
+          message: `Cannot reduce quantity below reserved amount (${item.reservedQuantity})` 
+        });
+      }
+      item.quantity = quantity;
+    }
+
+    item.lastUpdatedBy = req.user._id;
+    await item.save();
+
+    // Check if this update can fulfill any blocked orders
+    await checkAndFulfillBlockedOrders(item);
+
+    await item.populate('lastUpdatedBy', 'name alias');
+
+    res.json({
+      message: 'Inventory item updated successfully',
+      item
+    });
+
+  } catch (error) {
+    console.error('Edit inventory item error:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        errors: validationErrors 
+      });
+    }
+    
+    res.status(500).json({ message: 'Server error editing inventory item' });
+  }
+};
+
+// Add size to existing finished product (NEW)
+const addSizeToFinishedProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dimension, quantity } = req.body;
+
+    const item = await Inventory.findById(id);
+    if (!item) {
+      return res.status(404).json({ message: 'Inventory item not found' });
+    }
+
+    if (item.type !== 'finished_product') {
+      return res.status(400).json({ message: 'Can only add sizes to finished products' });
+    }
+
+    if (!dimension) {
+      return res.status(400).json({ message: 'Dimension is required' });
+    }
+
+    // Check if size already exists
+    const existingSize = item.sizes?.find(s => s.dimension === dimension);
+    if (existingSize) {
+      return res.status(400).json({ message: 'This size already exists for this product' });
+    }
+
+    // Initialize sizes array if it doesn't exist
+    if (!item.sizes) {
+      item.sizes = [];
+    }
+
+    // Add new size
+    const newSize = {
+      dimension,
+      quantity: quantity || 0,
+      reservedQuantity: 0,
+      availableQuantity: quantity || 0
+    };
+
+    item.sizes.push(newSize);
+    item.quantity += (quantity || 0);
+    item.lastUpdatedBy = req.user._id;
+
+    await item.save();
+    await item.populate('lastUpdatedBy', 'name alias');
+
+    res.json({
+      message: 'Size added successfully',
+      item
+    });
+
+  } catch (error) {
+    console.error('Add size to finished product error:', error);
+    res.status(500).json({ message: 'Server error adding size' });
+  }
+};
+
 module.exports = {
   getInventory,
   addInventoryItem,
   updateInventoryItem,
+  editInventoryItem,
+  addSizeToFinishedProduct,
   getInventoryByType,
   getLowStockItems,
   searchInventory,

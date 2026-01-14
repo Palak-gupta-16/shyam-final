@@ -1,12 +1,6 @@
 const mongoose = require('mongoose');
 
 const inventorySchema = new mongoose.Schema({
-  sku: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true
-  },
   type: {
     type: String,
     required: true,
@@ -23,6 +17,29 @@ const inventorySchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  // For finished_product, can have multiple sizes with quantities
+  sizes: [{
+    dimension: {
+      type: String,
+      trim: true
+    },
+    quantity: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    reservedQuantity: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    availableQuantity: {
+      type: Number,
+      min: 0,
+      default: 0
+    }
+  }],
+  // Legacy single dimension field (for non-finished_product or backward compatibility)
   dimensions: {
     type: String,
     trim: true
@@ -147,7 +164,6 @@ inventorySchema.statics.findAvailableStock = function(name, dimensions, type = '
 };
 
 // Index for better query performance
-inventorySchema.index({ sku: 1 });
 inventorySchema.index({ type: 1 });
 inventorySchema.index({ status: 1 });
 inventorySchema.index({ name: 1 });

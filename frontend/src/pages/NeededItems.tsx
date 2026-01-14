@@ -91,7 +91,7 @@ const NeededItems: React.FC = () => {
           </div>
           <div>
             <div className="font-medium text-gray-900">{value}</div>
-            <div className="text-sm text-gray-500">{record.sku}</div>
+            <div className="text-sm text-gray-500">{record.type}</div>
             {record.dimensions && (
               <div className="text-xs text-gray-400">{record.dimensions}</div>
             )}
@@ -373,7 +373,7 @@ const OrderDetailsModal: React.FC<{
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">Vehicle</label>
-              <p className="text-gray-900">{order.vehicle.number}</p>
+              <p className="text-gray-900">{order.vehicle?.number || 'Not added yet'}</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-600">Type</label>

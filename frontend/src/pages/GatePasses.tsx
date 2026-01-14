@@ -20,6 +20,7 @@ import Table from '../components/common/Table';
 import { gatePassAPI } from '../services/api';
 import { GatePass } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { extractApiError } from '../utils/errorHandling';
 // import { useAuth } from '../context/AuthContext';
 
 const GatePasses: React.FC = () => {
@@ -326,11 +327,15 @@ const CreateGatePassModal: React.FC<{
     purpose: '',
   });
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setLoading(true);
+      setErrorMessage('');
+      setFieldErrors({});
       await gatePassAPI.createGatePass({
         vehicle: {
           number: formData.vehicleNumber,
@@ -340,8 +345,11 @@ const CreateGatePassModal: React.FC<{
       });
       onSuccess();
       setFormData({ vehicleNumber: '', driverName: '', purpose: '' });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating gate pass:', error);
+      const { message, fieldErrors } = extractApiError(error);
+      setErrorMessage(message);
+      setFieldErrors(fieldErrors);
     } finally {
       setLoading(false);
     }
@@ -349,7 +357,18 @@ const CreateGatePassModal: React.FC<{
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Create New Gate Pass" size="md">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-800 font-medium">{errorMessage}</p>
+            {Object.keys(fieldErrors).length > 0 && (
+              <ul className="mt-2 text-red-700 text-sm space-y-1">
+                {Object.entries(fieldErrors).map(([field, message]) => (
+                  <li key={field}>• {field}: {message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <Input
           label="Vehicle Number"
           value={formData.vehicleNumber}

@@ -34,10 +34,24 @@ router.get('/hourly',
   millController.getHourlyReports
 );
 
+// Edit hourly report (NEW)
+router.put('/hourly/:id',
+  authorize('Mill_Supervisor', 'General_Manager', 'Director'),
+  logActivity('MILL_EDIT_HOURLY_REPORT', 'MillHourlyReport'),
+  millController.editHourlyReport
+);
+
 // Get daily summaries with filters
 router.get('/daily',
   authorize('Mill_Supervisor', 'General_Manager', 'Director'),
   millController.getDailySummaries
+);
+
+// Edit daily summary (NEW)
+router.put('/daily/:id',
+  authorize('Mill_Supervisor', 'General_Manager', 'Director'),
+  logActivity('MILL_EDIT_DAILY_SUMMARY', 'MillDailySummary'),
+  millController.editDailySummary
 );
 
 // Get available raw materials for mill production
