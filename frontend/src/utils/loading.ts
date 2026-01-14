@@ -24,17 +24,10 @@ export interface LoadingPayloadBuildResult {
 
 export const createInitialLoadingFormState = (order: Order): LoadingFormState => {
   const productLoads = order.products.map((product, index) => {
-    const bundleCount = Math.max(1, product.quantity || 0);
-    const bundleDetails: BundleDetailInput[] = Array.from({ length: bundleCount }).map((_, bundleIndex) => ({
-      bundleNumber: bundleIndex + 1,
-      weight: '',
-      size: product.dimensions || '',
-      length: product.length !== undefined && product.length !== null ? product.length : undefined
-    }));
-
+    // Start with empty bundleDetails - user will add them manually
     return {
       productIndex: index,
-      bundleDetails
+      bundleDetails: []
     };
   });
 

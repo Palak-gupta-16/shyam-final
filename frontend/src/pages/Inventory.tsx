@@ -9,7 +9,8 @@ import {
   Boxes,
   Factory,
   Store,
-  Trash2
+  Trash2,
+  Settings
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
@@ -31,6 +32,7 @@ const Inventory: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showSizeModal, setShowSizeModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
 
   const inventoryTypes = [
@@ -192,6 +194,17 @@ const Inventory: React.FC = () => {
       title: 'Actions',
       render: (_: any, record: InventoryItem) => (
         <div className="flex items-center space-x-2">
+          {record.type === 'finished_product' && record.sizes && record.sizes.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Settings}
+              onClick={() => {
+                setSelectedItem(record);
+                setShowSizeModal(true);
+              }}
+            />
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -345,6 +358,21 @@ const Inventory: React.FC = () => {
             onSuccess={() => {
               setShowEditModal(false);
               setSelectedItem(null);
+              fetchInventory();
+            }}
+          />
+        )}
+
+        {/* Size Management Modal */}
+        {selectedItem && (
+          <SizeManagementModal
+            isOpen={showSizeModal}
+            onClose={() => {
+              setShowSizeModal(false);
+              setSelectedItem(null);
+            }}
+            item={selectedItem}
+            onSuccess={() => {
               fetchInventory();
             }}
           />
@@ -637,6 +665,152 @@ const EditItemModal: React.FC<{
           </Button>
           <Button type="submit" loading={loading}>
             Update Quantity
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
+// Size Management Modal Component
+const SizeManagementModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  item: InventoryItem;
+  onSuccess: () => void;
+}> = ({ isOpen, onClose, item, onSuccess }) => {
+  const [sizes, setSizes] = useState<any[]>(item.sizes || []);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen && item.sizes) {
+      setSizes([...item.sizes]);
+    }
+  }, [isOpen, item]);
+
+  const handleAddSize = () => {
+    setSizes([...sizes, { dimension: '', quantity: 0, reservedQuantity: 0, availableQuantity: 0 }]);
+  };
+
+  const handleRemoveSize = (index: number) => {
+    setSizes(sizes.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateSize = (index: number, field: string, value: any) => {
+    const newSizes = [...sizes];
+    newSizes[index] = { ...newSizes[index], [field]: value };
+    if (field === 'quantity') {
+      const qty = Number(value);
+      newSizes[index].availableQuantity = qty - (newSizes[index].reservedQuantity || 0);
+    }
+    setSizes(newSizes);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      setErrorMessage('');
+
+      // Validate all sizes have dimension and quantity
+      const invalid = sizes.some(s => !s.dimension || !s.quantity || s.quantity <= 0);
+      if (invalid) {
+        setErrorMessage('All sizes must have dimension and quantity greater than 0');
+        setLoading(false);
+        return;
+      }
+
+      // Update the item with new sizes
+      await inventoryAPI.editInventoryItem(item._id, { sizes });
+      onSuccess();
+      onClose();
+    } catch (error: any) {
+      console.error('Error updating sizes:', error);
+      const { message } = extractApiError(error);
+      setErrorMessage(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Manage Sizes - ${item.name}`} size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-red-800 text-sm">{errorMessage}</p>
+          </div>
+        )}
+
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="font-medium text-gray-900">{item.name}</h4>
+          <p className="text-sm text-gray-600">Type: {item.type}</p>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="block text-sm font-medium text-gray-700">Available Sizes</label>
+            <Button type="button" variant="secondary" size="sm" onClick={handleAddSize}>
+              Add Size
+            </Button>
+          </div>
+
+          {sizes.map((size, index) => (
+            <div key={index} className="grid grid-cols-12 gap-3 items-end p-3 border rounded-lg">
+              <div className="col-span-4">
+                <Input
+                  label="Dimension"
+                  placeholder="e.g., 8mm"
+                  value={size.dimension}
+                  onChange={(e) => handleUpdateSize(index, 'dimension', e.target.value)}
+                  required
+                />
+              </div>
+              <div className="col-span-3">
+                <Input
+                  label="Quantity"
+                  type="number"
+                  placeholder="Quantity"
+                  value={size.quantity}
+                  onChange={(e) => handleUpdateSize(index, 'quantity', Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div className="col-span-3">
+                <Input
+                  label="Available"
+                  type="number"
+                  value={size.availableQuantity}
+                  disabled
+                />
+              </div>
+              <div className="col-span-2">
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  onClick={() => handleRemoveSize(index)}
+                >
+                  Remove
+                </Button>
+              </div>
+            </div>
+          ))}
+
+          {sizes.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              <p>No sizes added yet. Click "Add Size" to get started.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end space-x-3 pt-4">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={loading}>
+            Save Changes
           </Button>
         </div>
       </form>

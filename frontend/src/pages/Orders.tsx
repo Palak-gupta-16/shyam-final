@@ -452,7 +452,7 @@ const CreateOrderModal: React.FC<{
   const [formData, setFormData] = useState({
     type: 'dispatch' as 'dispatch' | 'purchase',
     customerOrSupplier: '',
-    products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
+    products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0, _selectedItem: null as any }],
   });
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -461,7 +461,7 @@ const CreateOrderModal: React.FC<{
   const addProduct = () => {
     setFormData((prev) => ({
       ...prev,
-      products: [...prev.products, { inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
+      products: [...prev.products, { inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0, _selectedItem: null }],
     }));
   };
 
@@ -527,7 +527,7 @@ const CreateOrderModal: React.FC<{
       setFormData({
         type: 'dispatch',
         customerOrSupplier: '',
-        products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0 }],
+        products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0, _selectedItem: null }],
       });
       setErrorMessage('');
       setFieldErrors({});
@@ -635,11 +635,10 @@ const CreateOrderModal: React.FC<{
                       if (item) {
                         updateProduct(index, 'inventoryItemId', item._id);
                         updateProduct(index, 'name', item.name);
-                        updateProduct(index, 'dimensions',
-                          item.dimensions !== undefined && item.dimensions !== null
-                            ? String(item.dimensions)
-                            : ''
-                        );
+                        // Store the item for size dropdown
+                        updateProduct(index, '_selectedItem', item);
+                        // Reset dimensions when item changes
+                        updateProduct(index, 'dimensions', '');
                         updateProduct(index, 'length',
                           item.length !== undefined && item.length !== null
                             ? String(item.length)
@@ -650,6 +649,7 @@ const CreateOrderModal: React.FC<{
                         updateProduct(index, 'name', '');
                         updateProduct(index, 'dimensions', '');
                         updateProduct(index, 'length', '');
+                        updateProduct(index, '_selectedItem', null);
                       }
                     }}
                     placeholder="Select material... *"
@@ -659,12 +659,11 @@ const CreateOrderModal: React.FC<{
                 </div>
                 <div className="col-span-3">
                   <Input
-                    placeholder="Dimensions"
+                    placeholder="Dimensions (Optional)"
                     value={product.dimensions}
                     onChange={(e) =>
                       updateProduct(index, 'dimensions', e.target.value)
                     }
-                    disabled
                   />
                 </div>
                 <div className="col-span-2">
