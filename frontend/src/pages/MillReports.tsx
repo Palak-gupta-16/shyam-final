@@ -111,10 +111,10 @@ const fetchReports = useCallback(async () => {
         color: 'primary' as const
       },
       {
-        title: 'Miss Rolls',
+        title: 'Total Weight',
         value: lastSummary
-          ? `${(lastSummary.totalMissRolls || 0).toLocaleString()}`
-          : '0',
+          ? `${(lastSummary.totalWeight || 0).toLocaleString()} kg`
+          : '0 kg',
         icon: Gauge,
         color: 'warning' as const
       },
@@ -242,54 +242,431 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
   const [form, setForm] = useState({
     date: defaultDate, 
     hour: new Date().getHours(), 
-    finalProducts: [] as Array<{ productId: string; dimension?: string; quantity: number }>,
-    rawMaterialsConsumed: [] as Array<{ materialId: string; quantity: number; unit?: string }>,
-    wasteProducts: [] as Array<{ wasteId: string; quantity: number; unit?: string }>,
+    finalProducts: [] as Array<{ productId: string; productName?: string; dimension?: string; quantity: number }>,
+    rawMaterialsConsumed: [] as Array<{ materialId: string; materialName?: string; quantity: number; unit?: string }>,
+    wasteProducts: [] as Array<{ wasteId: string; wasteName?: string; quantity: number; unit?: string }>,
     shift: 'A', 
     operatorName: '', 
     remarks: ''
   });
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Final Products Management
+  const addFinalProduct = () => {
+    setForm({
+      ...form,
+      finalProducts: [...form.finalProducts, { productId: '', productName: '', dimension: '', quantity: 0 }]
+    });
+    setErrorMessage('');
+  };
+
+  const removeFinalProduct = (index: number) => {
+    const updated = [...form.finalProducts];
+    updated.splice(index, 1);
+    setForm({ ...form, finalProducts: updated });
+  };
+
+  const handleFinalProductSelect = (index: number, item: InventoryItem | null) => {
+    const updated = [...form.finalProducts];
+    updated[index] = {
+      ...updated[index],
+      productId: item?._id || '',
+      productName: item?.name || '',
+      dimension: item?.dimensions || ''
+    };
+    setForm({ ...form, finalProducts: updated });
+    setErrorMessage('');
+  };
+
+  const handleFinalProductChange = (index: number, key: string, value: any) => {
+    const updated = [...form.finalProducts];
+    updated[index] = { ...updated[index], [key]: value };
+    setForm({ ...form, finalProducts: updated });
+  };
+
+  // Raw Materials Management
+  const addRawMaterial = () => {
+    setForm({
+      ...form,
+      rawMaterialsConsumed: [...form.rawMaterialsConsumed, { materialId: '', materialName: '', quantity: 0, unit: 'kg' }]
+    });
+    setErrorMessage('');
+  };
+
+  const removeRawMaterial = (index: number) => {
+    const updated = [...form.rawMaterialsConsumed];
+    updated.splice(index, 1);
+    setForm({ ...form, rawMaterialsConsumed: updated });
+  };
+
+  const handleRawMaterialSelect = (index: number, item: InventoryItem | null) => {
+    const updated = [...form.rawMaterialsConsumed];
+    updated[index] = {
+      ...updated[index],
+      materialId: item?._id || '',
+      materialName: item?.name || '',
+      unit: item?.unit || 'kg'
+    };
+    setForm({ ...form, rawMaterialsConsumed: updated });
+    setErrorMessage('');
+  };
+
+  const handleRawMaterialChange = (index: number, key: string, value: any) => {
+    const updated = [...form.rawMaterialsConsumed];
+    updated[index] = { ...updated[index], [key]: value };
+    setForm({ ...form, rawMaterialsConsumed: updated });
+  };
+
+  // Waste Products Management
+  const addWasteProduct = () => {
+    setForm({
+      ...form,
+      wasteProducts: [...form.wasteProducts, { wasteId: '', wasteName: '', quantity: 0, unit: 'kg' }]
+    });
+    setErrorMessage('');
+  };
+
+  const removeWasteProduct = (index: number) => {
+    const updated = [...form.wasteProducts];
+    updated.splice(index, 1);
+    setForm({ ...form, wasteProducts: updated });
+  };
+
+  const handleWasteProductSelect = (index: number, item: InventoryItem | null) => {
+    const updated = [...form.wasteProducts];
+    updated[index] = {
+      ...updated[index],
+      wasteId: item?._id || '',
+      wasteName: item?.name || '',
+      unit: item?.unit || 'kg'
+    };
+    setForm({ ...form, wasteProducts: updated });
+    setErrorMessage('');
+  };
+
+  const handleWasteProductChange = (index: number, key: string, value: any) => {
+    const updated = [...form.wasteProducts];
+    updated[index] = { ...updated[index], [key]: value };
+    setForm({ ...form, wasteProducts: updated });
+  };
 
   const submit = async (e: any) => {
     e.preventDefault();
+    
+    // Validation
+    if (form.finalProducts.length === 0) {
+      setErrorMessage('At least one final product is required');
+      return;
+    }
+    
+    for (let i = 0; i < form.finalProducts.length; i++) {
+      const product = form.finalProducts[i];
+      if (!product.productId) {
+        setErrorMessage(`Final Product ${i + 1}: Please select a product`);
+        return;
+      }
+      if (product.quantity <= 0) {
+        setErrorMessage(`Final Product ${i + 1}: Quantity must be greater than 0`);
+        return;
+      }
+    }
+
+    for (let i = 0; i < form.rawMaterialsConsumed.length; i++) {
+      const material = form.rawMaterialsConsumed[i];
+      if (!material.materialId) {
+        setErrorMessage(`Raw Material ${i + 1}: Please select a material`);
+        return;
+      }
+      if (material.quantity <= 0) {
+        setErrorMessage(`Raw Material ${i + 1}: Quantity must be greater than 0`);
+        return;
+      }
+    }
+
+    for (let i = 0; i < form.wasteProducts.length; i++) {
+      const waste = form.wasteProducts[i];
+      if (!waste.wasteId) {
+        setErrorMessage(`Waste Product ${i + 1}: Please select a product`);
+        return;
+      }
+      if (waste.quantity <= 0) {
+        setErrorMessage(`Waste Product ${i + 1}: Quantity must be greater than 0`);
+        return;
+      }
+    }
+    
     setLoading(true);
+    setErrorMessage('');
     try {
       await millAPI.createHourlyReport(form);
       onSuccess();
       onClose();
-    } catch (error) {
+      // Reset form
+      setForm({
+        date: defaultDate,
+        hour: new Date().getHours(),
+        finalProducts: [],
+        rawMaterialsConsumed: [],
+        wasteProducts: [],
+        shift: 'A',
+        operatorName: '',
+        remarks: ''
+      });
+    } catch (error: any) {
       console.error('Error creating hourly report:', error);
+      setErrorMessage(error.response?.data?.message || 'Failed to create hourly report');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Hourly Report" size="3xl">
-      <form onSubmit={submit} className="space-y-4">
-        <Input label="Date" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required />
-        <div className="grid grid-cols-3 gap-4">
-          <Input label="Hour" type="number" min={0} max={23} value={form.hour} onChange={e => setForm({...form, hour: Number(e.target.value)})} required />
-          <Input label="Shift" value={form.shift} onChange={e => setForm({...form, shift: e.target.value})} />
+    <Modal isOpen={isOpen} onClose={onClose} title="Add Hourly Report" size="4xl">
+      <form onSubmit={submit} className="space-y-6">
+        {/* Error Message */}
+        {errorMessage && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              <span className="text-red-800 font-medium">{errorMessage}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Basic Info */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input label="Date" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required />
+          <Input label="Hour (0-23)" type="number" min={0} max={23} value={form.hour} onChange={e => setForm({...form, hour: Number(e.target.value)})} required />
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input label="Shift" value={form.shift} onChange={e => setForm({...form, shift: e.target.value})} placeholder="A, B, or C" />
           <Input label="Operator Name" value={form.operatorName} onChange={e => setForm({...form, operatorName: e.target.value})} />
         </div>
-        
-        {/* Note: Full product selection UI would go here - simplified for now */}
-        <div className="bg-blue-50 p-4 rounded">
-          <p className="text-sm text-blue-700">Note: This is a simplified form. Full product selection UI with dropdowns for final products, raw materials, and waste products needs to be implemented as per FRONTEND_UPDATES_SUMMARY.md</p>
+
+        {/* Final Products Section */}
+        <div className="bg-green-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Final Products Produced</h3>
+          <div className="space-y-4">
+            {form.finalProducts.length === 0 && (
+              <div className="bg-white border border-dashed border-green-300 rounded-lg p-4 text-sm text-gray-600">
+                No final products added yet. Click "Add Final Product" to begin.
+              </div>
+            )}
+
+            {form.finalProducts.map((product, index) => (
+              <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Final Product {index + 1}
+                    </label>
+                    <InventoryDropdown
+                      type="finished_product"
+                      value={product.productId || null}
+                      onChange={(item) => handleFinalProductSelect(index, item)}
+                      placeholder="Select finished product..."
+                      required
+                      showStock
+                    />
+                  </div>
+                  <Input
+                    label="Quantity"
+                    type="number"
+                    value={product.quantity}
+                    onChange={e => handleFinalProductChange(index, 'quantity', Number(e.target.value))}
+                    required
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                  />
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => removeFinalProduct(index)}
+                      className="w-full"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+                {product.dimension && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    Dimension: {product.dimension}
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            <Button 
+              type="button" 
+              variant="secondary" 
+              onClick={addFinalProduct}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Final Product
+            </Button>
+          </div>
+        </div>
+
+        {/* Raw Materials Section */}
+        <div className="bg-blue-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Raw Materials Consumed</h3>
+          <div className="space-y-4">
+            {form.rawMaterialsConsumed.length === 0 && (
+              <div className="bg-white border border-dashed border-blue-300 rounded-lg p-4 text-sm text-gray-600">
+                No raw materials added yet. Click "Add Raw Material" to begin.
+              </div>
+            )}
+
+            {form.rawMaterialsConsumed.map((material, index) => (
+              <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Raw Material {index + 1}
+                    </label>
+                    <InventoryDropdown
+                      type="raw_material"
+                      value={material.materialId || null}
+                      onChange={(item) => handleRawMaterialSelect(index, item)}
+                      placeholder="Select raw material..."
+                      required
+                      showStock
+                      availableOnly
+                    />
+                  </div>
+                  <Input
+                    label="Quantity"
+                    type="number"
+                    value={material.quantity}
+                    onChange={e => handleRawMaterialChange(index, 'quantity', Number(e.target.value))}
+                    required
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => removeRawMaterial(index)}
+                      className="w-full"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+                {material.unit && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    Unit: {material.unit}
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            <Button 
+              type="button" 
+              variant="secondary" 
+              onClick={addRawMaterial}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Raw Material
+            </Button>
+          </div>
+        </div>
+
+        {/* Waste Products Section */}
+        <div className="bg-yellow-50 p-4 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Waste Products Generated</h3>
+          <div className="space-y-4">
+            {form.wasteProducts.length === 0 && (
+              <div className="bg-white border border-dashed border-yellow-300 rounded-lg p-4 text-sm text-gray-600">
+                No waste products added yet. Add an entry if waste was generated during this hour.
+              </div>
+            )}
+
+            {form.wasteProducts.map((waste, index) => (
+              <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Waste Product {index + 1}
+                    </label>
+                    <InventoryDropdown
+                      type="waste_material"
+                      value={waste.wasteId || null}
+                      onChange={(item) => handleWasteProductSelect(index, item)}
+                      placeholder="Select waste product..."
+                      required
+                      showStock={false}
+                    />
+                  </div>
+                  <Input
+                    label="Quantity"
+                    type="number"
+                    value={waste.quantity}
+                    onChange={e => handleWasteProductChange(index, 'quantity', Number(e.target.value))}
+                    required
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => removeWasteProduct(index)}
+                      className="w-full"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+                {waste.unit && (
+                  <div className="mt-2 text-sm text-gray-600">
+                    Unit: {waste.unit}
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            <Button 
+              type="button" 
+              variant="secondary" 
+              onClick={addWasteProduct}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Waste Product
+            </Button>
+          </div>
         </div>
         
-        <textarea 
-          placeholder="Remarks" 
-          value={form.remarks} 
-          onChange={e => setForm({...form, remarks: e.target.value})} 
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-          rows={3}
-        />
-        <div className="flex justify-end space-x-3">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={loading}>Save Report</Button>
+        {/* Remarks */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Remarks
+          </label>
+          <textarea 
+            placeholder="Any additional notes or observations..." 
+            value={form.remarks} 
+            onChange={e => setForm({...form, remarks: e.target.value})} 
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-vertical"
+            rows={3}
+          />
+        </div>
+
+        <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button type="submit" loading={loading}>
+            <CheckCircle className="h-4 w-4 mr-2" />
+            Save Report
+          </Button>
         </div>
       </form>
     </Modal>
@@ -301,11 +678,9 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     date: defaultDate,
     name: '',
     dimensions: '',
-    billetSize: '',
     totalPieces: 0,
     totalWeight: 0,
     breakdownSummary: '',
-    totalMissRolls: 0,
     productionHours: 0,
     efficiency: 0,
     remarks: '',
@@ -393,10 +768,6 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     if (!form.finishedProduct?.inventoryItemId) {
       errors.push('Please select a finished product');
     }
-
-    if (!form.billetSize.trim()) {
-      errors.push('Billet size is required');
-    }
     
     if (form.totalWeight <= 0) {
       errors.push('Total weight must be greater than 0');
@@ -480,11 +851,9 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         date: defaultDate,
         name: '',
         dimensions: '',
-        billetSize: '',
         totalPieces: 0,
         totalWeight: 0,
         breakdownSummary: '',
-        totalMissRolls: 0,
         productionHours: 0,
         efficiency: 0,
         remarks: '',
@@ -528,20 +897,13 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         )}
 
         {/* Basic Information */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1">
           <Input 
             label="Date" 
             type="date" 
             value={form.date} 
             onChange={e => setForm({...form, date: e.target.value})} 
             required 
-          />
-          <Input 
-            label="Billet Size" 
-            value={form.billetSize} 
-            onChange={e => setForm({...form, billetSize: e.target.value})} 
-            required 
-            placeholder="e.g., 150x150mm"
           />
         </div>
 
@@ -694,8 +1056,7 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
                       Waste Material {index + 1}
                     </label>
                     <InventoryDropdown
-                      type="raw_material"
-                      excludeIds={form.finishedProduct?.inventoryItemId ? [form.finishedProduct.inventoryItemId] : []}
+                      type="waste_material"
                       value={material.inventoryItemId || null}
                       onChange={(item) => handleWasteSelect(index, item)}
                       placeholder="Select waste item..."
@@ -768,17 +1129,6 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
               onChange={e => setForm({...form, remarks: e.target.value})}
             />
           </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Input 
-            label="Miss Rolls" 
-            type="number" 
-            value={form.totalMissRolls} 
-            onChange={e => setForm({...form, totalMissRolls: Number(e.target.value)})} 
-            min="0"
-            placeholder="0"
-          />
         </div>
 
         {/* Submit Button */}

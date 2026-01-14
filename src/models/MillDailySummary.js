@@ -51,11 +51,6 @@ const millDailySummarySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  billetSize: {
-    type: String,
-    required: true,
-    trim: true
-  },
   totalPieces: {
     type: Number,
     required: true,
@@ -76,11 +71,6 @@ const millDailySummarySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
-  },
-  totalMissRolls: {
-    type: Number,
-    min: 0,
-    default: 0
   },
   productionHours: {
     type: Number,

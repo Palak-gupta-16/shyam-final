@@ -254,12 +254,10 @@ export interface MillDailySummary {
   date: string;
   name: string; // Finished product name
   dimensions?: string; 
-  billetSize: string;
   totalPieces: number;
   totalWeight: number;
   breakdownSummary?: string;
   createdBy: User;
-  totalMissRolls?: number;
   productionHours?: number;
   efficiency?: number;
   remarks?: string;

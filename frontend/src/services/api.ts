@@ -372,7 +372,6 @@ export const millAPI = {
     date: string;
     name: string;
     dimensions?: string;
-    billetSize: string;
     rawMaterials: RawMaterialUsage[];
     wasteMaterials?: WasteMaterialOutput[];
     finishedProduct: {
@@ -382,7 +381,6 @@ export const millAPI = {
     totalPieces: number;
     totalWeight: number;
     breakdownSummary?: string;
-    totalMissRolls?: number;
     productionHours?: number;
     efficiency?: number;
     remarks?: string;
