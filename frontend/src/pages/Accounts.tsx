@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   FileText, 
-  Plus, 
+  Download, 
   Search, 
-  Clock,
+  DollarSign,
+  Edit,
   CheckCircle,
   Package,
-  Eye
+  TrendingUp,
+  AlertCircle
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
@@ -14,14 +16,13 @@ import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import Modal from '../components/common/Modal';
 import Badge from '../components/common/Badge';
-import OrderCard from '../components/orders/OrderCard';
 import OrderStatusBadge from '../components/orders/OrderStatusBadge';
 import Pagination from '../components/common/Pagination';
 import { ordersAPI } from '../services/api';
 import { Order, OrderStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
 
-const Orders: React.FC = () => {
+const Accounts: React.FC = () => {
   const { hasRole } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,110 +31,262 @@ const Orders: React.FC = () => {
   const [selectedType, setSelectedType] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showActionModal, setShowActionModal] = useState(false);
+  const [showFareModal, setShowFareModal] = useState(false);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [actionType, setActionType] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [fareForm, setFareForm] = useState({
+    fareAmount: 0,
+    paidBy: 'our_side' as 'our_side' | 'other_party',
+    fareNotes: ''
+  });
+  const [invoiceForm, setInvoiceForm] = useState({
+    amount: 0,
+    RatePerUnit: 0,
+    TaxPercentage: 0,
+    invoiceNotes: '',
+    pdfUrl: ''
+  });
 
+  // Fetch orders ready for billing
+  const fetchOrders = useCallback(async () => {
+    try {
+      setLoading(true);
 
+      const params: any = {
+        page: currentPage,
+        perPage: 20,
+        status: [
+          'ready_for_billing',
+          'ready_for_billing_purchase',
+          'ready_for_dispatch',
+          'ready_for_exit_purchase',
+          'completed'
+        ]
+      };
 
-const fetchOrders = useCallback(async () => {
-  try {
-    setLoading(true);
+      if (selectedStatus !== 'all') params.status = [selectedStatus];
+      if (selectedType !== 'all') params.type = selectedType;
 
-    const params: any = {
-      page: currentPage,
-      perPage: 12,
-      status: [
-        'ready_for_billing',
-        'ready_for_billing_purchase',
-      ] // Default statuses as array
-    };
-
-    if (selectedStatus !== 'all') params.status = [selectedStatus];
-    if (selectedType !== 'all') params.type = selectedType;
-
-    const response = await ordersAPI.getOrdersByStatus(params);
-    setOrders(response.orders || []);
-    setTotalPages(response.pagination?.totalPages || 1);
-  } catch (error) {
-    console.error('Error fetching orders:', error);
-  } finally {
-    setLoading(false);
-  }
-}, [currentPage, selectedStatus, selectedType]);
-
+      const response = await ordersAPI.getOrdersByStatus(params);
+      setOrders(response.orders || []);
+      setTotalPages(response.pagination?.totalPages || 1);
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPage, selectedStatus, selectedType]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-
-
-  const handleActionClick = (action: string, orderId: string) => {
-    const order = orders.find(o => o._id === orderId);
-    if (order) {
-      setSelectedOrder(order);
-      setActionType(action);
-      setShowActionModal(true);
-    }
-  };
-
-  const executeAction = async (actionData: any) => {
+  // Handle fare form submission
+  const handleFareSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!selectedOrder) return;
 
     try {
-     switch (actionType) {
-
-      case 'empty-weight':
-        await ordersAPI.recordEmptyWeight(selectedOrder._id, actionData);
-        break;
-
-      case 'accept-loading':
-        await ordersAPI.acceptLoading(selectedOrder._id);
-        break;
-      case 'complete-loading':
-        await ordersAPI.loadingComplete(selectedOrder._id, actionData);
-        break;
-      case 'ready-unloading':
-        await ordersAPI.readyForUnloading(selectedOrder._id);
-        break;
-      case 'accept-unloading':
-        await ordersAPI.acceptUnloading(selectedOrder._id);
-        break;
-      case 'unloading-complete':
-        await ordersAPI.unloadingComplete(selectedOrder._id);
-        break;
-      case 'final-weight':
-        await ordersAPI.recordFinalWeight(selectedOrder._id, actionData);
-        break;
-      case 'generate-invoice':
-        await ordersAPI.generateInvoice(selectedOrder._id, actionData);
-        break;
-      case 'exit':
-        await ordersAPI.exitOrder(selectedOrder._id);
-        break;
-      default:
-        console.warn(`Unknown action type: ${actionType}`);
-        // Optionally show a toast notification for invalid action
-        return;
-    }
-      
-      setShowActionModal(false);
+      await ordersAPI.updateFareDetails(selectedOrder._id, fareForm);
+      setShowFareModal(false);
       setSelectedOrder(null);
+      setFareForm({ fareAmount: 0, paidBy: 'our_side', fareNotes: '' });
       fetchOrders();
     } catch (error) {
-      console.error('Error executing action:', error);
+      console.error('Error updating fare:', error);
     }
   };
 
+  // Handle invoice generation
+  const handleInvoiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrder) return;
 
+    try {
+      await ordersAPI.generateInvoice(selectedOrder._id, invoiceForm);
+      setShowInvoiceModal(false);
+      setSelectedOrder(null);
+      setInvoiceForm({ amount: 0, RatePerUnit: 0, TaxPercentage: 0, invoiceNotes: '', pdfUrl: '' });
+      fetchOrders();
+    } catch (error) {
+      console.error('Error generating invoice:', error);
+    }
+  };
+
+  // Open fare modal with existing data
+  const openFareModal = (order: Order) => {
+    setSelectedOrder(order);
+    setFareForm({
+      fareAmount: order.invoice?.fare?.amount || 0,
+      paidBy: order.invoice?.fare?.paidBy || 'our_side',
+      fareNotes: order.invoice?.fare?.notes || ''
+    });
+    setShowFareModal(true);
+  };
+
+  // Open invoice modal
+  const openInvoiceModal = (order: Order) => {
+    setSelectedOrder(order);
+    setInvoiceForm({
+      amount: order.invoice?.amount || 0,
+      RatePerUnit: order.invoice?.RatePerUnit || 0,
+      TaxPercentage: order.invoice?.TaxPercentage || 0,
+      invoiceNotes: order.invoice?.invoiceNotes || '',
+      pdfUrl: order.invoice?.pdfUrl || ''
+    });
+    setShowInvoiceModal(true);
+  };
+
+  // Generate printable invoice view
+  const generateInvoiceView = (order: Order) => {
+    const invoice = order.invoice;
+    const fare = invoice?.fare;
+    
+    const invoiceHTML = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Invoice #${invoice?.billNumber || 'N/A'}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; }
+          .header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid #333; padding-bottom: 20px; }
+          .header h1 { margin: 0; color: #333; }
+          .info { margin: 20px 0; }
+          .info-row { display: flex; justify-content: space-between; margin: 10px 0; }
+          .info-label { font-weight: bold; }
+          .table { width: 100%; border-collapse: collapse; margin: 30px 0; }
+          .table th, .table td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+          .table th { background-color: #f4f4f4; font-weight: bold; }
+          .total-section { margin-top: 30px; text-align: right; }
+          .total-row { margin: 10px 0; font-size: 16px; }
+          .total-row.grand { font-size: 20px; font-weight: bold; border-top: 2px solid #333; padding-top: 10px; }
+          .fare-section { background: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 5px; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>SHYAM SUPER APP</h1>
+          <p>Invoice #${invoice?.billNumber || 'N/A'}</p>
+          <p>Date: ${new Date().toLocaleDateString()}</p>
+        </div>
+        
+        <div class="info">
+          <div class="info-row">
+            <div><span class="info-label">Order Number:</span> #${order.orderNumber}</div>
+            <div><span class="info-label">Order Type:</span> ${order.type.toUpperCase()}</div>
+          </div>
+          <div class="info-row">
+            <div><span class="info-label">${order.type === 'dispatch' ? 'Customer' : 'Supplier'}:</span> ${order.customerOrSupplier}</div>
+            <div><span class="info-label">Vehicle:</span> ${order.vehicle?.number || 'N/A'}</div>
+          </div>
+          ${order.vehicle?.driverName ? `
+          <div class="info-row">
+            <div><span class="info-label">Driver:</span> ${order.vehicle.driverName}</div>
+            <div><span class="info-label">Contact:</span> ${order.vehicle.driverNumber || 'N/A'}</div>
+          </div>
+          ` : ''}
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Dimensions</th>
+              <th>Quantity</th>
+              <th>Unit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${order.products.map(product => `
+              <tr>
+                <td>${product.name}</td>
+                <td>${product.dimensions || 'N/A'}</td>
+                <td>${product.quantity}</td>
+                <td>${product.unit || 'pcs'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        ${order.weights ? `
+        <div class="info">
+          <h3>Weight Details</h3>
+          <div class="info-row">
+            <div><span class="info-label">Empty Weight:</span> ${order.weights.emptyWeight || 'N/A'} kg</div>
+            <div><span class="info-label">Final Weight:</span> ${order.weights.finalWeight || 'N/A'} kg</div>
+          </div>
+          <div class="info-row">
+            <div><span class="info-label">Net Weight:</span> ${order.netWeight || 'N/A'} kg</div>
+          </div>
+        </div>
+        ` : ''}
+
+        ${fare ? `
+        <div class="fare-section">
+          <h3>Transportation Fare</h3>
+          <div class="info-row">
+            <div><span class="info-label">Fare Amount:</span> ₹${fare.amount?.toLocaleString() || '0'}</div>
+            <div><span class="info-label">Paid By:</span> ${fare.paidBy === 'our_side' ? 'Our Side' : 'Other Party'}</div>
+          </div>
+          ${fare.notes ? `<div><span class="info-label">Notes:</span> ${fare.notes}</div>` : ''}
+        </div>
+        ` : ''}
+
+        <div class="total-section">
+          ${invoice?.RatePerUnit ? `<div class="total-row">Rate per Unit: ₹${invoice.RatePerUnit.toLocaleString()}</div>` : ''}
+          ${invoice?.TaxPercentage ? `<div class="total-row">Tax: ${invoice.TaxPercentage}%</div>` : ''}
+          <div class="total-row grand">Total Amount: ₹${invoice?.amount?.toLocaleString() || '0'}</div>
+        </div>
+
+        ${invoice?.invoiceNotes ? `
+        <div class="info" style="margin-top: 30px;">
+          <h3>Notes</h3>
+          <p>${invoice.invoiceNotes}</p>
+        </div>
+        ` : ''}
+
+        <div style="margin-top: 50px; text-align: center;">
+          <button onclick="window.print()" style="padding: 10px 30px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">Print Invoice</button>
+          <button onclick="window.close()" style="padding: 10px 30px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-left: 10px;">Close</button>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(invoiceHTML);
+      printWindow.document.close();
+    }
+  };
+
+  // Download invoice
+  const handleDownloadInvoice = (order: Order) => {
+    if (order.invoice?.pdfUrl) {
+      window.open(order.invoice.pdfUrl, '_blank');
+    } else {
+      // Generate printable invoice view
+      generateInvoiceView(order);
+    }
+  };
+
+  // Filter orders
   const filteredOrders = orders.filter(order =>
     order.orderNumber.toString().includes(searchTerm) ||
     order.customerOrSupplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (order.vehicle?.number && order.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // Calculate statistics
+  const stats = {
+    totalOrders: filteredOrders.length,
+    withFare: filteredOrders.filter(o => o.invoice?.fare?.amount).length,
+    withInvoice: filteredOrders.filter(o => o.invoice?.billNumber).length,
+    totalRevenue: filteredOrders
+      .filter(o => o.invoice?.amount && o.type === 'dispatch')
+      .reduce((sum, o) => sum + (o.invoice?.amount || 0), 0),
+  };
 
   return (
     <DashboardLayout>
@@ -141,36 +294,61 @@ const fetchOrders = useCallback(async () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Weighbridge Management</h1>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="flex bg-gray-100 rounded-lg p-1">
-              <button
-                onClick={() => setViewMode('cards')}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'cards'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Cards
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'table'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                Table
-              </button>
-            </div>
-           
+            <h1 className="text-3xl font-bold text-gray-900">Accounts & Billing</h1>
+            <p className="text-gray-600 mt-1">Manage fare details and invoices</p>
           </div>
         </div>
 
-        
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <Card.Body>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Orders</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.totalOrders}</p>
+                </div>
+                <FileText className="h-10 w-10 text-blue-500" />
+              </div>
+            </Card.Body>
+          </Card>
+
+          <Card>
+            <Card.Body>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">With Fare Details</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.withFare}</p>
+                </div>
+                <DollarSign className="h-10 w-10 text-green-500" />
+              </div>
+            </Card.Body>
+          </Card>
+
+          <Card>
+            <Card.Body>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Invoices Generated</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.withInvoice}</p>
+                </div>
+                <CheckCircle className="h-10 w-10 text-purple-500" />
+              </div>
+            </Card.Body>
+          </Card>
+
+          <Card>
+            <Card.Body>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Revenue</p>
+                  <p className="text-2xl font-bold text-gray-900">₹{stats.totalRevenue.toLocaleString()}</p>
+                </div>
+                <TrendingUp className="h-10 w-10 text-orange-500" />
+              </div>
+            </Card.Body>
+          </Card>
+        </div>
 
         {/* Filters */}
         <Card>
@@ -191,9 +369,11 @@ const fetchOrders = useCallback(async () => {
                   className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Status</option>
-                  <option value="ready_for_billing">Final billing for dispatch</option>
-                  <option value="ready_for_billing_purchase">Final billing for purchase</option>
-
+                  <option value="ready_for_billing">Ready for Billing (Dispatch)</option>
+                  <option value="ready_for_billing_purchase">Ready for Billing (Purchase)</option>
+                  <option value="ready_for_dispatch">Ready for Dispatch</option>
+                  <option value="ready_for_exit_purchase">Ready for Exit (Purchase)</option>
+                  <option value="completed">Completed</option>
                 </select>
                 <select
                   value={selectedType}
@@ -209,25 +389,166 @@ const fetchOrders = useCallback(async () => {
           </Card.Body>
         </Card>
 
-        {/* Orders Grid/Table */}
-        {viewMode === 'cards' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredOrders.map((order) => (
-              <OrderCard
-                key={order._id}
-                order={order}
-                onActionClick={handleActionClick}
-                showActions={true}
-              />
-            ))}
+        {/* Orders Table */}
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Order #
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Type
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Customer/Supplier
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Vehicle
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Fare Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Paid By
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Invoice
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                      Loading orders...
+                    </td>
+                  </tr>
+                ) : filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                      No orders found
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOrders.map((order) => (
+                    <tr key={order._id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-medium text-gray-900">#{order.orderNumber}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Badge variant={order.type === 'dispatch' ? 'primary' : 'warning'} size="sm">
+                          {order.type}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{order.customerOrSupplier}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {order.vehicle?.number ? (
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{order.vehicle.number}</div>
+                            <div className="text-xs text-gray-500">{order.vehicle.driverName}</div>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400 italic">Not added</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {order.invoice?.fare?.amount ? (
+                          <span className="text-sm font-medium text-gray-900">
+                            ₹{order.invoice.fare.amount.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400 italic">Not set</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {order.invoice?.fare?.paidBy ? (
+                          <Badge 
+                            variant={order.invoice.fare.paidBy === 'our_side' ? 'error' : 'success'} 
+                            size="sm"
+                          >
+                            {order.invoice.fare.paidBy === 'our_side' ? 'Our Side' : 'Other Party'}
+                          </Badge>
+                        ) : (
+                          <span className="text-sm text-gray-400 italic">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {order.invoice?.billNumber ? (
+                          <div className="flex items-center">
+                            <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
+                            <span className="text-sm text-gray-900">#{order.invoice.billNumber}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center">
+                            <AlertCircle className="h-4 w-4 text-amber-500 mr-1" />
+                            <span className="text-sm text-gray-500">Pending</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <OrderStatusBadge status={order.status} />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex items-center gap-2">
+                          {!order.invoice?.fare?.amount && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={DollarSign}
+                              onClick={() => openFareModal(order)}
+                            >
+                              Add Fare
+                            </Button>
+                          )}
+                          {order.invoice?.fare?.amount && !order.invoice?.billNumber && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                icon={Edit}
+                                onClick={() => openFareModal(order)}
+                              >
+                                Edit Fare
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                icon={FileText}
+                                onClick={() => openInvoiceModal(order)}
+                              >
+                                Generate Invoice
+                              </Button>
+                            </>
+                          )}
+                          {order.invoice?.billNumber && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={Download}
+                              onClick={() => handleDownloadInvoice(order)}
+                            >
+                              Download
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        ) : (
-          <OrdersTable 
-            orders={filteredOrders} 
-            loading={loading}
-            onActionClick={handleActionClick}
-          />
-        )}
+        </Card>
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -236,290 +557,190 @@ const fetchOrders = useCallback(async () => {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             total={orders.length}
-            pageSize={12}
+            pageSize={20}
           />
         )}
 
-
-        {/* Action Modal */}
-        <ActionModal
-          isOpen={showActionModal}
+        {/* Fare Modal */}
+        <Modal
+          isOpen={showFareModal}
           onClose={() => {
-            setShowActionModal(false);
+            setShowFareModal(false);
             setSelectedOrder(null);
           }}
-          order={selectedOrder}
-          actionType={actionType}
-          onExecute={executeAction}
-        />
+          title={`Fare Details - Order #${selectedOrder?.orderNumber}`}
+          size="md"
+        >
+          <form onSubmit={handleFareSubmit}>
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h4 className="font-medium text-blue-900">Transportation Fare</h4>
+                <p className="text-sm text-blue-700 mt-1">
+                  Enter the transportation fare and specify who will pay
+                </p>
+              </div>
+
+              <Input
+                label="Fare Amount (₹)"
+                type="number"
+                step="1"
+                value={fareForm.fareAmount}
+                onChange={(e) => setFareForm(prev => ({ ...prev, fareAmount: Number(e.target.value) }))}
+                required
+                placeholder="Enter fare amount"
+              />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Who Will Pay the Fare?
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paidBy"
+                      value="our_side"
+                      checked={fareForm.paidBy === 'our_side'}
+                      onChange={(e) => setFareForm(prev => ({ ...prev, paidBy: e.target.value as 'our_side' | 'other_party' }))}
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900">Our Side</div>
+                      <div className="text-sm text-gray-500">We will pay the transportation fare</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paidBy"
+                      value="other_party"
+                      checked={fareForm.paidBy === 'other_party'}
+                      onChange={(e) => setFareForm(prev => ({ ...prev, paidBy: e.target.value as 'our_side' | 'other_party' }))}
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900">Other Party</div>
+                      <div className="text-sm text-gray-500">Customer/Supplier will pay the fare</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Notes (Optional)
+                </label>
+                <textarea
+                  value={fareForm.fareNotes}
+                  onChange={(e) => setFareForm(prev => ({ ...prev, fareNotes: e.target.value }))}
+                  placeholder="Additional fare details..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-6 mt-6 border-t">
+              <Button variant="secondary" onClick={() => setShowFareModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                Save Fare Details
+              </Button>
+            </div>
+          </form>
+        </Modal>
+
+        {/* Invoice Modal */}
+        <Modal
+          isOpen={showInvoiceModal}
+          onClose={() => {
+            setShowInvoiceModal(false);
+            setSelectedOrder(null);
+          }}
+          title={`Generate Invoice - Order #${selectedOrder?.orderNumber}`}
+          size="md"
+        >
+          <form onSubmit={handleInvoiceSubmit}>
+            <div className="space-y-4">
+              <div className="bg-green-50 p-4 rounded-lg">
+                <h4 className="font-medium text-green-900">Invoice Generation</h4>
+                <p className="text-sm text-green-700 mt-1">
+                  Create billing invoice for this order
+                </p>
+                {selectedOrder?.invoice?.fare && (
+                  <div className="mt-2 text-sm text-green-700">
+                    <strong>Fare:</strong> ₹{selectedOrder.invoice.fare.amount?.toLocaleString()} 
+                    ({selectedOrder.invoice.fare.paidBy === 'our_side' ? 'Our Side' : 'Other Party'})
+                  </div>
+                )}
+              </div>
+
+              <Input
+                label="Invoice Amount (₹)"
+                type="number"
+                step="1"
+                value={invoiceForm.amount}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                required
+                placeholder="Enter total invoice amount"
+              />
+
+              <Input
+                label="Rate per Unit (₹)"
+                type="number"
+                step="0.01"
+                value={invoiceForm.RatePerUnit}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, RatePerUnit: Number(e.target.value) }))}
+                placeholder="Rate per unit"
+              />
+
+              <Input
+                label="Tax Percentage (%)"
+                type="number"
+                step="0.01"
+                value={invoiceForm.TaxPercentage}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, TaxPercentage: Number(e.target.value) }))}
+                placeholder="Tax percentage"
+              />
+
+              <Input
+                label="Invoice PDF URL (Optional)"
+                value={invoiceForm.pdfUrl}
+                onChange={(e) => setInvoiceForm(prev => ({ ...prev, pdfUrl: e.target.value }))}
+                placeholder="Enter invoice PDF URL if available"
+              />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Invoice Notes
+                </label>
+                <textarea
+                  value={invoiceForm.invoiceNotes}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, invoiceNotes: e.target.value }))}
+                  placeholder="Additional invoice details..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-6 mt-6 border-t">
+              <Button variant="secondary" onClick={() => setShowInvoiceModal(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                Generate Invoice
+              </Button>
+            </div>
+            <div className="text-sm text-gray-500 mt-2">
+              Note: If no PDF URL is provided, a printable invoice will be generated automatically.
+            </div>
+          </form>
+        </Modal>
       </div>
     </DashboardLayout>
   );
 };
 
-// Orders Table Component
-const OrdersTable: React.FC<{
-  orders: Order[];
-  loading: boolean;
-  onActionClick: (action: string, orderId: string) => void;
-}> = ({ orders, loading, onActionClick }) => {
-  const columns = [
-    {
-      key: 'orderNumber',
-      title: 'Order #',
-      sortable: true,
-      render: (value: number) => (
-        <span className="font-medium">#{value}</span>
-      ),
-    },
-    {
-      key: 'type',
-      title: 'Type',
-      render: (value: string) => (
-        <Badge variant={value === 'dispatch' ? 'primary' : 'warning'} size="sm">
-          {value}
-        </Badge>
-      ),
-    },
-    {
-      key: 'customerOrSupplier',
-      title: 'Customer/Supplier',
-      sortable: true,
-    },
-    {
-      key: 'vehicle.number',
-      title: 'Vehicle',
-      render: (_: any, record: Order) => (
-        <div>
-          {record.vehicle?.number ? (
-            <>
-              <div className="font-medium">{record.vehicle.number}</div>
-              <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
-            </>
-          ) : (
-            <span className="text-sm text-gray-400 italic">Not added</span>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      title: 'Status',
-      render: (value: OrderStatus) => <OrderStatusBadge status={value} />,
-    },
-    {
-      key: 'createdAt',
-      title: 'Created',
-      render: (value: string) => (
-        new Date(value).toLocaleDateString()
-      ),
-    },
-    {
-      key: 'actions',
-      title: 'Actions',
-      render: (_: any, record: Order) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={Eye}
-          onClick={() => onActionClick('view', record._id)}
-        />
-      ),
-    },
-  ];
-
-  return (
-    <Card>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              {columns.map((column, index) => (
-                <th
-                  key={index}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                >
-                  {column.title}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {orders.map((order) => (
-              <tr key={order._id} className="hover:bg-gray-50">
-                {columns.map((column, index) => {
-                  const getValue = (key: string) => {
-                    if (key.includes('.')) {
-                      return key.split('.').reduce((obj: any, k) => obj?.[k], order);
-                    }
-                    return order[key as keyof Order];
-                  };
-                  
-                  const value = getValue(column.key);
-                  
-                  return (
-                    <td key={index} className="px-6 py-4 whitespace-nowrap text-sm">
-                      {column.render ? column.render(value, order) : value as React.ReactNode}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-};
-
-
-
-// Action Modal
-const ActionModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  order: Order | null;
-  actionType: string;
-  onExecute: (data: any) => void;
-}> = ({ isOpen, onClose, order, actionType, onExecute }) => {
-  const [formData, setFormData] = useState<any>({});
-  const [loading, setLoading] = useState(false);
-
-  if (!order) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    let processedData = { ...formData };
-    
-    
-    // Special processing for generate-invoice action
-    if (actionType === 'generate-invoice') {
-      const amountValue = Number(formData.amount) || 0;
-      const rateValue = formData.rate !== undefined && formData.rate !== ''
-        ? Number(formData.rate)
-        : undefined;
-      const taxValue = formData.taxRate !== undefined && formData.taxRate !== ''
-        ? Number(formData.taxRate)
-        : undefined;
-      const notesValue = formData.invoiceNotes?.trim();
-
-      processedData = {
-        amount: amountValue
-      };
-
-      if (rateValue !== undefined && !Number.isNaN(rateValue)) {
-        processedData.RatePerUnit = rateValue;
-      }
-
-      if (taxValue !== undefined && !Number.isNaN(taxValue)) {
-        processedData.TaxPercentage = taxValue;
-      }
-
-      if (notesValue) {
-        processedData.invoiceNotes = notesValue;
-      }
-    }
-    // console.log('Processed Data:', processedData);
-    await onExecute(processedData);
-    setLoading(false);
-  };
-
-  const renderActionForm = () => {
-    switch (actionType) {
-     
-      case 'generate-invoice':
-        return (
-          <div className="space-y-4">
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h4 className="font-medium text-green-900">Generate Invoice</h4>
-              <p className="text-sm text-green-700 mt-1">
-                Create billing invoice for Order #{order.orderNumber}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              <Input
-                label="Invoice Amount (₹)"
-                type="number"
-                step="1"
-                value={formData.amount || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, amount: Number(e.target.value) }))}
-                required
-                placeholder="Enter total invoice amount"
-              />
-              <Input
-                label="Rate per Unit (₹)"
-                type="number"
-                step="1"
-                value={formData.rate || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, rate: Number(e.target.value) }))}
-                required
-                placeholder="Rate per unit"
-              />
-              <Input
-                label="Tax Percentage (%)"
-                type="number"
-                step="1"
-                value={formData.taxRate || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, taxRate: Number(e.target.value) }))}
-                required
-                placeholder="Tax percentage"
-              />
-              <Input
-                label="Invoice PDF URL"
-                value={formData.pdfUrl || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, pdfUrl: e.target.value }))}
-                placeholder="Enter invoice PDF URL (optional)"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Invoice Notes
-              </label>
-              <textarea
-                value={formData.invoiceNotes || ''}
-                onChange={(e) => setFormData((prev: any) => ({ ...prev, invoiceNotes: e.target.value }))}
-                placeholder="Additional invoice details..."
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        );
-     
-      default:
-        return (
-          <div className="text-center py-8">
-            <Package className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Action: {actionType}</h3>
-            <p className="text-gray-600">Unknown action type</p>
-          </div>
-        );
-    }
-  };
-
-  return (
-    <Modal 
-      isOpen={isOpen} 
-      onClose={onClose} 
-      title={`${actionType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())} - Order #${order.orderNumber}`} 
-      size="lg"
-    >
-      <form onSubmit={handleSubmit}>
-        {renderActionForm()}
-        
-        <div className="flex justify-end space-x-3 pt-6 mt-6 border-t">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={loading}>
-            Execute Action
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-};
-
-export default Orders;
+export default Accounts;

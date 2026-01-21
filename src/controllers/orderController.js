@@ -1227,7 +1227,7 @@ const recordFinalWeight = async (req, res) => {
 const generateInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount, RatePerUnit, TaxPercentage, invoiceNotes } = req.body;
+    const { amount, RatePerUnit, TaxPercentage, invoiceNotes, pdfUrl } = req.body;
 
     const order = await Order.findById(id);
     if (!order) {
@@ -1272,6 +1272,12 @@ const generateInvoice = async (req, res) => {
       typeof invoiceNotes === "string" ? invoiceNotes.trim() : "";
     if (trimmedInvoiceNotes) {
       invoicePayload.invoiceNotes = trimmedInvoiceNotes;
+    }
+
+    const trimmedPdfUrl =
+      typeof pdfUrl === "string" ? pdfUrl.trim() : "";
+    if (trimmedPdfUrl) {
+      invoicePayload.pdfUrl = trimmedPdfUrl;
     }
 
     order.invoice = invoicePayload;

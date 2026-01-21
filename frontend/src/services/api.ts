@@ -165,6 +165,7 @@ getOrdersByStatus: async (params?: {
     RatePerUnit?: number;
     TaxPercentage?: number;
     invoiceNotes?: string;
+    pdfUrl?: string;
   }): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.post(`/orders/${orderId}/generate-invoice`, data);
     return response.data;
