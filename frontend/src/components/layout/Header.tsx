@@ -72,7 +72,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
               className="flex items-center space-x-3 text-gray-700 hover:text-gray-900 focus:outline-none"
             >
               <div className="flex items-center space-x-3">
-                <div className="h-8 w-8 bg-primary-600 rounded-full flex items-center justify-center">
+                <div className="h-8 w-8 bg-[rgb(238,119,53)] rounded-full flex items-center justify-center">
                   <span className="text-white text-sm font-medium">
                     {user ? getUserInitials(user.name) : 'U'}
                   </span>
@@ -114,7 +114,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                   Settings
                 </button>
                 
-                <button
+                {/* <button
                   onClick={() => {
                     navigate('/profile');
                     setShowUserMenu(false);
@@ -123,7 +123,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                 >
                   <User className="h-4 w-4 mr-3" />
                   Profile
-                </button>
+                </button> */}
                 </>
                  )}
                 <hr className="my-1" />

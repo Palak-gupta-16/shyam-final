@@ -149,7 +149,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ embedded = false }) => {
       <Card className="w-full max-w-md" shadow="lg">
         <Card.Body>
           <div className="text-center mb-8">
-            <div className="mx-auto h-16 w-16 bg-primary-600 rounded-full flex items-center justify-center mb-4">
+            <div className="mx-auto h-16 w-16 bg-[rgb(238,119,53)] rounded-full flex items-center justify-center mb-4">
               <span className="text-2xl font-bold text-white">S</span>
             </div>
             <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>

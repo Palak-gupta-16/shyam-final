@@ -144,7 +144,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       `}>
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
           <div className="flex items-center">
-            <div className="h-8 w-8 bg-primary-600 rounded-lg flex items-center justify-center">
+            <div className="h-8 w-8 bg-[rgb(238,119,53)] rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-lg">S</span>
             </div>
             <span className="ml-2 text-xl font-bold text-gray-900">SHYAM</span>
