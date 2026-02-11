@@ -128,8 +128,95 @@ const getProfile = async (req, res) => {
   }
 };
 
+// Get all users
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find()
+      .select('-passwordHash') // hide passwords
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      message: 'Users retrieved successfully',
+      count: users.length,
+      users
+    });
+
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ message: 'Server error retrieving users' });
+  }
+};
+
+// Edit user
+const editUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, alias, email, role } = req.body;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Optional: restrict role update
+    if (role && !canAssignPrivilegedRole(role)) {
+      if (!req.user || !['General_Manager', 'Director'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Cannot assign privileged role' });
+      }
+    }
+
+    // Update fields
+    if (name) user.name = name;
+    if (alias) user.alias = alias;
+    if (email) user.email = email;
+    if (role) user.role = role;
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'User updated successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        alias: user.alias,
+        email: user.email,
+        role: user.role
+      }
+    });
+
+  } catch (error) {
+    console.error('Edit user error:', error);
+    res.status(500).json({ message: 'Server error updating user' });
+  }
+};
+
+// Delete user
+const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findByIdAndDelete(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({
+      message: 'User deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ message: 'Server error deleting user' });
+  }
+};
+
+
+
 module.exports = {
   register,
   login,
-  getProfile
+  getProfile,
+  getAllUsers,
+  editUser,
+  deleteUser
 };

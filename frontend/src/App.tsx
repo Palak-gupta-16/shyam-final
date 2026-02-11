@@ -1,4 +1,5 @@
 import React from 'react';
+import { Toaster } from 'react-hot-toast';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <Router>
+        <Toaster position="top-right" /> 
         <div className="App">
           <Routes>
             {/* Public routes */}
@@ -59,12 +61,6 @@ const App: React.FC = () => {
             <Route path="/gate-passes" element={
               <ProtectedRoute requiredRoles={['Guard', 'Director', 'General_Manager']}>
                 <GatePasses />
-              </ProtectedRoute>
-            } />
-
-            <Route path="/gate" element={
-              <ProtectedRoute requiredRoles={['Guard', 'Director', 'General_Manager']}>
-                <Gaurd />
               </ProtectedRoute>
             } />
 

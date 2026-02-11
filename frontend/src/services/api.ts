@@ -17,7 +17,8 @@ import {
   GatePassesResponse,
   RawMaterialUsage,
   WasteMaterialOutput,
-  LoadingCompletePayload
+  LoadingCompletePayload,
+  UsersResponse,
 } from '../types';
 
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -63,6 +64,11 @@ export const authAPI = {
     const response: AxiosResponse<LoginResponse> = await api.post('/auth/login', data);
     return response.data;
   },
+
+getAll: async (): Promise<UsersResponse> => {
+  const res = await api.get('/auth/users');
+  return res.data;
+},
 
   register: async (data: RegisterForm): Promise<ApiResponse<User>> => {
     const response: AxiosResponse<ApiResponse<User>> = await api.post('/auth/register', data);

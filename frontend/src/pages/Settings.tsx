@@ -24,17 +24,17 @@ import RegisterForm from '../components/auth/RegisterForm';
 
 const Settings: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('new_user');
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'system', label: 'System', icon: Database },
-    { id: 'appearance', label: 'Appearance', icon: Palette },
-    { id: 'backup', label: 'Backup & Export', icon: Download },
+    // { id: 'profile', label: 'Profile', icon: User },
+    // { id: 'notifications', label: 'Notifications', icon: Bell },
+    // { id: 'security', label: 'Security', icon: Shield },
+    // { id: 'system', label: 'System', icon: Database },
+    // { id: 'appearance', label: 'Appearance', icon: Palette },
+    // { id: 'backup', label: 'Backup & Export', icon: Download },
     { id: 'new_user', label: 'Create New User', icon: User },
   ];
 
@@ -47,20 +47,35 @@ const Settings: React.FC = () => {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'profile':
-        return <ProfileSettings user={user} onSave={handleSave} saving={saving} />;
-      case 'notifications':
-        return <NotificationSettings onSave={handleSave} saving={saving} />;
-      case 'security':
-        return <SecuritySettings onSave={handleSave} saving={saving} showPassword={showPassword} setShowPassword={setShowPassword} />;
-      case 'system':
-        return <SystemSettings onSave={handleSave} saving={saving} />;
-      case 'appearance':
-        return <AppearanceSettings onSave={handleSave} saving={saving} />;
-      case 'backup':
-        return <BackupSettings />;
+      // case 'profile':
+      //   return <ProfileSettings user={user} onSave={handleSave} saving={saving} />;
+      // case 'notifications':
+      //   return <NotificationSettings onSave={handleSave} saving={saving} />;
+      // case 'security':
+      //   return <SecuritySettings onSave={handleSave} saving={saving} showPassword={showPassword} setShowPassword={setShowPassword} />;
+      // case 'system':
+      //   return <SystemSettings onSave={handleSave} saving={saving} />;
+      // case 'appearance':
+      //   return <AppearanceSettings onSave={handleSave} saving={saving} />;
+      // case 'backup':
+      //   return <BackupSettings />;
       case 'new_user':
-        return <RegisterForm  />;
+  return (
+    <Card>
+      <Card.Header>
+        <h3 className="text-lg font-medium text-gray-900">
+          Create New User
+        </h3>
+        <p className="text-sm text-gray-600">
+          Register a new user account with role and permissions
+        </p>
+      </Card.Header>
+
+      <Card.Body>
+        <RegisterForm embedded />
+      </Card.Body>
+    </Card>
+  );
       default:
         return <ProfileSettings user={user} onSave={handleSave} saving={saving} />;
     }

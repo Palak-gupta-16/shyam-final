@@ -39,10 +39,10 @@ const OrderCard: React.FC<OrderCardProps> = ({
     }
 
     // Role-based action visibility
-    const canApproveEntry = hasRole(['Guard', 'Director']);
-    const canRecordWeight = hasRole(['Weighbridge', 'Director']);
-    const canManageLoading = hasRole(['Loading', 'Director']);
-    const canManageUnloading = hasRole(['Unloading', 'Director']);
+    const canApproveEntry = hasRole(['Guard','General_Manager', 'Director']);
+    const canRecordWeight = hasRole(['Weighbridge','General_Manager', 'Director']);
+    const canManageLoading = hasRole(['Loading','General_Manager', 'Director']);
+    const canManageUnloading = hasRole(['Unloading','General_Manager', 'Director']);
     const canGenerateInvoice = hasRole(['Accounting', 'Director']);
     const canSignalReady =
       hasRole(['Weighbridge', 'General_Manager', 'Director']) ||

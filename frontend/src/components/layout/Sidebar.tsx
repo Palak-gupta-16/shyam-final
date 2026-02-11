@@ -93,18 +93,18 @@ const navigationItems: NavItem[] = [
     icon: Factory,
     roles: ['Mill_Supervisor', 'General_Manager', 'Director'],
   },
-  {
-    name: 'Store Management',
-    href: '/store',
-    icon: Store,
-    roles: ['Store_Keeper', 'General_Manager', 'Director'],
-  },
-  {
-    name: 'Reports',
-    href: '/reports',
-    icon: BarChart3,
-    roles: ['General_Manager', 'Director'],
-  },
+  // {
+  //   name: 'Store Management',
+  //   href: '/store',
+  //   icon: Store,
+  //   roles: ['Store_Keeper', 'General_Manager', 'Director'],
+  // },
+  // {
+  //   name: 'Reports',
+  //   href: '/reports',
+  //   icon: BarChart3,
+  //   roles: ['General_Manager', 'Director'],
+  // },
   {
     name: 'Users',
     href: '/users',
@@ -191,7 +191,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </nav>
 
         {/* User info at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200">
+        {/* <div className="p-4 border-t border-gray-200 flex-shrink-0">
           <div className="flex items-center">
             <div className="h-8 w-8 bg-gray-300 rounded-full flex items-center justify-center">
               <Users className="h-4 w-4 text-gray-600" />
@@ -205,7 +205,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               </p>
             </div>
           </div>
-        </div>
+        </div> */}
       </div>
     </>
   );

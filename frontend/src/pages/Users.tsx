@@ -14,6 +14,7 @@ import {
   Calendar,
   MoreVertical
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
@@ -21,6 +22,7 @@ import Input from '../components/common/Input';
 import Modal from '../components/common/Modal';
 import Badge from '../components/common/Badge';
 import Table from '../components/common/Table';
+import { authAPI } from '../services/api';
 import Pagination from '../components/common/Pagination';
 import { User, UserRole } from '../types';
 
@@ -53,47 +55,22 @@ const Users: React.FC = () => {
     fetchUsers();
   }, []);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      setLoading(true);
-      // Simulate API call - replace with actual API
-      const mockUsers: User[] = [
-        {
-          _id: '1',
-          name: 'Rajesh Kumar',
-          alias: 'rajesh.kumar',
-          email: 'rajesh@shyamsteel.com',
-          role: 'Director',
-          createdAt: '2024-01-15T10:00:00Z',
-          updatedAt: '2024-01-15T10:00:00Z',
-        },
-        {
-          _id: '2',
-          name: 'Priya Sharma',
-          alias: 'priya.sharma',
-          email: 'priya@shyamsteel.com',
-          role: 'General_Manager',
-          createdAt: '2024-01-16T10:00:00Z',
-          updatedAt: '2024-01-16T10:00:00Z',
-        },
-        {
-          _id: '3',
-          name: 'Amit Patel',
-          alias: 'amit.patel',
-          email: 'amit@shyamsteel.com',
-          role: 'Store_Keeper',
-          createdAt: '2024-01-17T10:00:00Z',
-          updatedAt: '2024-01-17T10:00:00Z',
-        },
-        // Add more mock users as needed
-      ];
-      setUsers(mockUsers);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+const fetchUsers = useCallback(async () => {
+  try {
+    setLoading(true);
+
+    const res = await authAPI.getAll();
+
+    // 👇 this matches your backend response
+    setUsers(res.users || []);
+
+  } catch (error) {
+    toast.error('Error fetching users: ' + (error as any).message);
+  } finally {
+    setLoading(false);
+  }
+}, []);
+
 
   const filterUsers = useCallback(() => {
     let filtered = users;
@@ -189,32 +166,32 @@ const Users: React.FC = () => {
         </div>
       ),
     },
-    {
-      key: 'actions',
-      title: 'Actions',
-      render: (_: any, record: User) => (
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={Edit3}
-            onClick={() => {
-              setSelectedUser(record);
-              setShowEditModal(true);
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={Trash2}
-            onClick={() => {
-              setSelectedUser(record);
-              setShowDeleteModal(true);
-            }}
-          />
-        </div>
-      ),
-    },
+    // {
+    //   key: 'actions',
+    //   title: 'Actions',
+    //   render: (_: any, record: User) => (
+    //     <div className="flex items-center space-x-2">
+    //       <Button
+    //         variant="ghost"
+    //         size="sm"
+    //         icon={Edit3}
+    //         onClick={() => {
+    //           setSelectedUser(record);
+    //           setShowEditModal(true);
+    //         }}
+    //       />
+    //       <Button
+    //         variant="ghost"
+    //         size="sm"
+    //         icon={Trash2}
+    //         onClick={() => {
+    //           setSelectedUser(record);
+    //           setShowDeleteModal(true);
+    //         }}
+    //       />
+    //     </div>
+    //   ),
+    // },
   ];
 
   const totalPages = Math.ceil(filteredUsers.length / pageSize);
@@ -261,12 +238,12 @@ const Users: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
             <p className="text-gray-600 mt-2">Manage system users and their access permissions</p>
           </div>
-          <Button
+          {/* <Button
             icon={Plus}
             onClick={() => setShowCreateModal(true)}
           >
             Add User
-          </Button>
+          </Button> */}
         </div>
 
         {/* Stats Cards */}
@@ -340,14 +317,14 @@ const Users: React.FC = () => {
         )}
 
         {/* Create User Modal */}
-        <CreateUserModal
+        {/* <CreateUserModal
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false);
             fetchUsers();
           }}
-        />
+        /> */}
 
         {/* Edit User Modal */}
         {selectedUser && (
@@ -419,126 +396,126 @@ const Users: React.FC = () => {
 };
 
 // Create User Modal
-const CreateUserModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
-}> = ({ isOpen, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    alias: '',
-    email: '',
-    role: 'Store_Keeper' as UserRole,
-    password: '',
-    confirmPassword: '',
-  });
-  const [loading, setLoading] = useState(false);
+// const CreateUserModal: React.FC<{
+//   isOpen: boolean;
+//   onClose: () => void;
+//   onSuccess: () => void;
+// }> = ({ isOpen, onClose, onSuccess }) => {
+//   const [formData, setFormData] = useState({
+//     name: '',
+//     alias: '',
+//     email: '',
+//     role: 'Store_Keeper' as UserRole,
+//     password: '',
+//     confirmPassword: '',
+//   });
+//   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match');
-      return;
-    }
+//   const handleSubmit = async (e: React.FormEvent) => {
+//     e.preventDefault();
+//     if (formData.password !== formData.confirmPassword) {
+//       alert('Passwords do not match');
+//       return;
+//     }
 
-    try {
-      setLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      onSuccess();
-      setFormData({
-        name: '',
-        alias: '',
-        email: '',
-        role: 'Store_Keeper',
-        password: '',
-        confirmPassword: '',
-      });
-    } catch (error) {
-      console.error('Error creating user:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+//     try {
+//       setLoading(true);
+//       // Simulate API call
+//       await new Promise(resolve => setTimeout(resolve, 1000));
+//       onSuccess();
+//       setFormData({
+//         name: '',
+//         alias: '',
+//         email: '',
+//         role: 'Store_Keeper',
+//         password: '',
+//         confirmPassword: '',
+//       });
+//     } catch (error) {
+//       console.error('Error creating user:', error);
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create New User" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Full Name"
-            value={formData.name}
-            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            required
-            placeholder="Enter full name"
-          />
-          <Input
-            label="Username/Alias"
-            value={formData.alias}
-            onChange={(e) => setFormData(prev => ({ ...prev, alias: e.target.value }))}
-            required
-            placeholder="Enter username"
-          />
-        </div>
+//   return (
+//     <Modal isOpen={isOpen} onClose={onClose} title="Create New User" size="lg">
+//       <form onSubmit={handleSubmit} className="space-y-4">
+//         <div className="grid grid-cols-2 gap-4">
+//           <Input
+//             label="Full Name"
+//             value={formData.name}
+//             onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+//             required
+//             placeholder="Enter full name"
+//           />
+//           <Input
+//             label="Username/Alias"
+//             value={formData.alias}
+//             onChange={(e) => setFormData(prev => ({ ...prev, alias: e.target.value }))}
+//             required
+//             placeholder="Enter username"
+//           />
+//         </div>
 
-        <Input
-          label="Email Address"
-          type="email"
-          value={formData.email}
-          onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-          required
-          placeholder="Enter email address"
-        />
+//         <Input
+//           label="Email Address"
+//           type="email"
+//           value={formData.email}
+//           onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+//           required
+//           placeholder="Enter email address"
+//         />
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-          <select
-            value={formData.role}
-            onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value as UserRole }))}
-            className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="Director">Director</option>
-            <option value="General_Manager">General Manager</option>
-            <option value="Store_Keeper">Store Keeper</option>
-            <option value="Purchasing">Purchasing</option>
-            <option value="Guard">Guard</option>
-            <option value="Weighbridge">Weighbridge</option>
-            <option value="Loading">Loading</option>
-            <option value="Accounting">Accounting</option>
-          </select>
-        </div>
+//         <div>
+//           <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+//           <select
+//             value={formData.role}
+//             onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value as UserRole }))}
+//             className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+//           >
+//             <option value="Director">Director</option>
+//             <option value="General_Manager">General Manager</option>
+//             <option value="Store_Keeper">Store Keeper</option>
+//             <option value="Purchasing">Purchasing</option>
+//             <option value="Guard">Guard</option>
+//             <option value="Weighbridge">Weighbridge</option>
+//             <option value="Loading">Loading</option>
+//             <option value="Accounting">Accounting</option>
+//           </select>
+//         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Password"
-            type="password"
-            value={formData.password}
-            onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-            required
-            placeholder="Enter password"
-          />
-          <Input
-            label="Confirm Password"
-            type="password"
-            value={formData.confirmPassword}
-            onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-            required
-            placeholder="Confirm password"
-          />
-        </div>
+//         <div className="grid grid-cols-2 gap-4">
+//           <Input
+//             label="Password"
+//             type="password"
+//             value={formData.password}
+//             onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+//             required
+//             placeholder="Enter password"
+//           />
+//           <Input
+//             label="Confirm Password"
+//             type="password"
+//             value={formData.confirmPassword}
+//             onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+//             required
+//             placeholder="Confirm password"
+//           />
+//         </div>
 
-        <div className="flex justify-end space-x-3 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={loading}>
-            Create User
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-};
+//         <div className="flex justify-end space-x-3 pt-4">
+//           <Button variant="secondary" onClick={onClose}>
+//             Cancel
+//           </Button>
+//           <Button type="submit" loading={loading}>
+//             Create User
+//           </Button>
+//         </div>
+//       </form>
+//     </Modal>
+//   );
+// };
 
 // Edit User Modal
 const EditUserModal: React.FC<{

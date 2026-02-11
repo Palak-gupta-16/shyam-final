@@ -6,6 +6,7 @@ import { UserRole } from '../../types';
 import Button from '../common/Button';
 import Input from '../common/Input';
 import Card from '../common/Card';
+import toast from 'react-hot-toast';
 
 const ROLES: { value: UserRole; label: string; description: string }[] = [
   { value: 'Guard', label: 'Guard', description: 'Vehicle entry/exit management' },
@@ -21,7 +22,11 @@ const ROLES: { value: UserRole; label: string; description: string }[] = [
   { value: 'Director', label: 'Director', description: 'Full system access' },
 ];
 
-const RegisterForm: React.FC = () => {
+interface RegisterFormProps {
+  embedded?: boolean;
+}
+
+const RegisterForm: React.FC<RegisterFormProps> = ({ embedded = false }) => {
   const navigate = useNavigate();
   const { register } = useAuth();
   
@@ -38,6 +43,8 @@ const RegisterForm: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const passwordRegex =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData(prev => ({
@@ -60,14 +67,23 @@ const RegisterForm: React.FC = () => {
       setError('Email is required');
       return false;
     }
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long');
-      return false;
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return false;
-    }
+     if (!passwordRegex.test(formData.password)) {
+    setError(
+      'Password must be at least 8 characters and include uppercase, lowercase, and a number'
+    );
+    return false;
+  }
+
+  // ✅ Confirm password validation
+  if (formData.confirmPassword.trim() === '') {
+    setError('Please confirm your password');
+    return false;
+  }
+
+  if (formData.password !== formData.confirmPassword) {
+    setError('Passwords do not match');
+    return false;
+  }
     return true;
   };
 
@@ -92,15 +108,22 @@ const RegisterForm: React.FC = () => {
         // navigate('/login');
       }, 2000);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed. Please try again.');
-    } finally {
+  const apiError = err.response?.data;
+
+  if (apiError?.errors) {
+    apiError.errors.forEach((e: any) => toast.error(e.message));
+  } else {
+    toast.error(apiError?.message || 'Registration failed');
+  }
+} finally {
       setIsLoading(false);
     }
   };
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-secondary-100 px-4 sm:px-6 lg:px-8">
+      <div className={embedded ? "w-full" : "min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-secondary-100 px-4"}>
+
         <Card className="w-full max-w-md" shadow="lg">
           <Card.Body>
             <div className="text-center">
@@ -246,7 +269,8 @@ const RegisterForm: React.FC = () => {
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
+          {!embedded && (
+  <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               Already have an account?{' '}
               <Link
@@ -256,7 +280,7 @@ const RegisterForm: React.FC = () => {
                 Sign in here
               </Link>
             </p>
-          </div>
+          </div>)}
         </Card.Body>
       </Card>
     </div>

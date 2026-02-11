@@ -9,6 +9,12 @@ export interface User {
   updatedAt: string;
 }
 
+export type UsersResponse = {
+  message: string;
+  count: number;
+  users: User[];
+};
+
 export type UserRole = 
   | 'Guard'
   | 'Weighbridge'
