@@ -25,7 +25,7 @@ router.post('/',
 
 // Guard approve order
 router.patch('/:id/guard-approve',
-  authorize('Guard','Director'),
+  authorize('Guard','Director','General_Manager'),
   logActivity('ORDER_GUARD_APPROVE', 'Order'),
   orderController.guardApprove
 );
@@ -53,7 +53,7 @@ router.patch('/:id',
 
 // Record empty weight
 router.post('/:id/weight/empty',
-  authorize('Weighbridge','Director'),
+  authorize('Weighbridge','Director','General_Manager'),
   validate(emptyWeightSchema),
   logActivity('ORDER_EMPTY_WEIGHT', 'Order'),
   orderController.recordEmptyWeight
@@ -74,19 +74,19 @@ router.patch('/:id/ready-unloading',
 
 // Accept loading
 router.patch('/:id/accept-loading',
-  authorize('Loading','Director'),
+  authorize('Loading','Director','General_Manager'),
   logActivity('ORDER_ACCEPT_LOADING', 'Order'),
   orderController.acceptLoading
 );
 
 router.patch('/:id/accept-unloading',
-  authorize('Unloading', 'Director'),
+  authorize('Unloading', 'Director', 'General_Manager'),
   logActivity('ORDER_ACCEPT_UNLOADING', 'Order'),
   orderController.acceptUnloading
 );
 
 router.post('/:id/unloading-complete',
-  authorize('Unloading', 'Director'),
+  authorize('Unloading', 'Director', 'General_Manager'),
   logActivity('ORDER_UNLOADING_COMPLETE', 'Order'),
   orderController.unloadingComplete
 );
@@ -94,7 +94,7 @@ router.post('/:id/unloading-complete',
 
 // Loading complete
 router.post('/:id/loading-complete',
-  authorize('Loading','Director'),
+  authorize('Loading','Director','General_Manager'),
   validate(loadingCompleteSchema),
   logActivity('ORDER_LOADING_COMPLETE', 'Order'),
   orderController.loadingComplete
@@ -102,7 +102,7 @@ router.post('/:id/loading-complete',
 
 // Record final weight
 router.post('/:id/weight/final',
-  authorize('Weighbridge','Director'),
+  authorize('Weighbridge','Director','General_Manager'),
   validate(finalWeightSchema),
   logActivity('ORDER_FINAL_WEIGHT', 'Order'),
   orderController.recordFinalWeight
@@ -118,7 +118,7 @@ router.post('/:id/generate-invoice',
 
 // Exit order
 router.patch('/:id/exit',
-  authorize('Guard','Director'),
+  authorize('Guard','Director','General_Manager'),
   logActivity('ORDER_EXIT', 'Order'),
   orderController.exitOrder
 );

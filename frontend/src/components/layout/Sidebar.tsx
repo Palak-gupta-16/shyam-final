@@ -85,7 +85,7 @@ const navigationItems: NavItem[] = [
     name: 'Accounting',
     href: '/accounts',
     icon: Shield,
-    roles: ['Accounting', 'Director', 'General_Manager'],
+    roles: ['Accounting', 'Director'],
   },
   {
     name: 'Mill Operations',
