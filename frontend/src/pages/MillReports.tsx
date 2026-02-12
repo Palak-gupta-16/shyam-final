@@ -242,7 +242,7 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
   const [form, setForm] = useState({
     date: defaultDate, 
     hour: new Date().getHours(), 
-    finalProducts: [] as Array<{ productId: string; productName?: string; dimension?: string; quantity: number }>,
+    finalProducts: [] as Array<{ productId: string; productName?: string; dimension?: string; quantity: number; _selectedItem?: any; _availableSizes?: any[]; _newSize?: string }>,
     rawMaterialsConsumed: [] as Array<{ materialId: string; materialName?: string; quantity: number; unit?: string }>,
     wasteProducts: [] as Array<{ wasteId: string; wasteName?: string; quantity: number; unit?: string }>,
     shift: 'A', 
@@ -256,7 +256,7 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
   const addFinalProduct = () => {
     setForm({
       ...form,
-      finalProducts: [...form.finalProducts, { productId: '', productName: '', dimension: '', quantity: 0 }]
+      finalProducts: [...form.finalProducts, { productId: '', productName: '', dimension: '', quantity: 0, _selectedItem: null, _availableSizes: [], _newSize: '' }]
     });
     setErrorMessage('');
   };
@@ -273,7 +273,9 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
       ...updated[index],
       productId: item?._id || '',
       productName: item?.name || '',
-      dimension: item?.dimensions || ''
+      dimension: '',
+      _selectedItem: item,
+      _availableSizes: item?.sizes || []
     };
     setForm({ ...form, finalProducts: updated });
     setErrorMessage('');
@@ -366,6 +368,14 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
         setErrorMessage(`Final Product ${i + 1}: Please select a product`);
         return;
       }
+      if (!product.dimension || product.dimension === '') {
+        setErrorMessage(`Final Product ${i + 1}: Please select or enter a size`);
+        return;
+      }
+      if (product.dimension === '__new__' && (!product._newSize || product._newSize.trim() === '')) {
+        setErrorMessage(`Final Product ${i + 1}: Please enter the new size name`);
+        return;
+      }
       if (product.quantity <= 0) {
         setErrorMessage(`Final Product ${i + 1}: Quantity must be greater than 0`);
         return;
@@ -399,7 +409,15 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
     setLoading(true);
     setErrorMessage('');
     try {
-      await millAPI.createHourlyReport(form);
+      // Process final products to replace __new__ with actual new size
+      const processedForm = {
+        ...form,
+        finalProducts: form.finalProducts.map(p => ({
+          ...p,
+          dimension: p.dimension === '__new__' ? p._newSize : p.dimension
+        }))
+      };
+      await millAPI.createHourlyReport(processedForm);
       onSuccess();
       onClose();
       // Reset form
@@ -457,7 +475,7 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
 
             {form.finalProducts.map((product, index) => (
               <div key={index} className="bg-white p-4 rounded-lg border border-gray-200">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Final Product {index + 1}
@@ -471,6 +489,47 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
                       showStock
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Size *</label>
+                    {product._availableSizes && product._availableSizes.length > 0 ? (
+                      <select
+                        value={product.dimension || ''}
+                        onChange={(e) => handleFinalProductChange(index, 'dimension', e.target.value)}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      >
+                        <option value="">Select size...</option>
+                        {product._availableSizes.map((size, idx) => (
+                          <option key={idx} value={size.dimension}>
+                            {size.dimension} (Stock: {size.quantity})
+                          </option>
+                        ))}
+                        <option value="__new__">+ Add New Size</option>
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={product.dimension || ''}
+                        onChange={(e) => handleFinalProductChange(index, 'dimension', e.target.value)}
+                        placeholder="Enter size (e.g., 8mm)..."
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      />
+                    )}
+                  </div>
+                  {product.dimension === '__new__' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">New Size *</label>
+                      <input
+                        type="text"
+                        value={product._newSize || ''}
+                        onChange={(e) => handleFinalProductChange(index, '_newSize', e.target.value)}
+                        placeholder="e.g., 12mm"
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        required
+                      />
+                    </div>
+                  )}
                   <Input
                     label="Quantity"
                     type="number"
@@ -492,11 +551,6 @@ const AddReportModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defaultDate
                     </Button>
                   </div>
                 </div>
-                {product.dimension && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    Dimension: {product.dimension}
-                  </div>
-                )}
               </div>
             ))}
             
@@ -684,7 +738,7 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     productionHours: 0,
     efficiency: 0,
     remarks: '',
-    finishedProduct: { inventoryItemId: '' },
+    finishedProduct: { inventoryItemId: '', dimension: '' },
     rawMaterials: [
       { inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }
     ] as RawMaterialUsage[],
@@ -692,6 +746,8 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
   });
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
+  const [availableSizes, setAvailableSizes] = useState<Array<{dimension: string, quantity: number}>>([]);
 
   const handleMaterialChange = (index: number, key: string, value: any) => {
     const updated = [...form.rawMaterials];
@@ -769,6 +825,14 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
       errors.push('Please select a finished product');
     }
     
+    if (!form.finishedProduct?.dimension) {
+      errors.push('Please select or enter a size/dimension for the finished product');
+    }
+    
+    if (form.finishedProduct?.dimension === '__new__' && !form.dimensions) {
+      errors.push('Please enter the new size dimension');
+    }
+    
     if (form.totalWeight <= 0) {
       errors.push('Total weight must be greater than 0');
     }
@@ -841,7 +905,8 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         wasteMaterials: wasteMaterialsPayload,
         finishedProduct: {
           inventoryItemId: form.finishedProduct.inventoryItemId,
-          quantityProduced: form.totalWeight
+          quantityProduced: form.totalWeight,
+          dimension: form.finishedProduct.dimension === '__new__' ? form.dimensions : form.finishedProduct.dimension
         }
       });
       onSuccess();
@@ -857,10 +922,12 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         productionHours: 0,
         efficiency: 0,
         remarks: '',
-        finishedProduct: { inventoryItemId: '' },
+        finishedProduct: { inventoryItemId: '', dimension: '' },
         rawMaterials: [{ inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }],
         wasteMaterials: []
       });
+      setSelectedProduct(null);
+      setAvailableSizes([]);
     } catch (error: any) {
       console.error('Error creating daily summary:', error);
       if (error.response?.data?.errors) {
@@ -910,29 +977,80 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         {/* Product Information */}
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Finished Product</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <InventoryDropdown
               type="finished_product"
               value={form.finishedProduct?.inventoryItemId || null}
               onChange={(item) => {
+                setSelectedProduct(item);
+                setAvailableSizes(item?.sizes || []);
                 setForm({
                   ...form,
                   name: item?.name || '',
                   dimensions: item?.dimensions || '',
-                  finishedProduct: { inventoryItemId: item?._id || '' }
+                  finishedProduct: { inventoryItemId: item?._id || '', dimension: '' }
                 });
                 setValidationErrors([]);
               }}
               placeholder="Select finished product..."
               showStock={true}
             />
-            <Input 
-              label="Dimensions" 
-              value={form.dimensions} 
-              onChange={e => setForm({...form, dimensions: e.target.value})} 
-              placeholder="e.g., 12mm x 6m"
-              disabled
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Size / Dimension *</label>
+              {availableSizes.length > 0 ? (
+                <select
+                  value={form.finishedProduct?.dimension || ''}
+                  onChange={(e) => {
+                    setForm({
+                      ...form,
+                      finishedProduct: {
+                        ...form.finishedProduct,
+                        dimension: e.target.value
+                      }
+                    });
+                    setValidationErrors([]);
+                  }}
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                >
+                  <option value="">Select size...</option>
+                  {availableSizes.map((size, idx) => (
+                    <option key={idx} value={size.dimension}>
+                      {size.dimension} (Stock: {size.quantity})
+                    </option>
+                  ))}
+                  <option value="__new__">+ Add New Size</option>
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={form.finishedProduct?.dimension || ''}
+                  onChange={(e) => {
+                    setForm({
+                      ...form,
+                      finishedProduct: {
+                        ...form.finishedProduct,
+                        dimension: e.target.value
+                      }
+                    });
+                    setValidationErrors([]);
+                  }}
+                  placeholder="Enter size (e.g., 8mm, 10mm)..."
+                  className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              )}
+              <p className="mt-1 text-xs text-gray-500">Select existing size or add new</p>
+            </div>
+            {form.finishedProduct?.dimension === '__new__' && (
+              <Input
+                label="New Size"
+                value={form.dimensions}
+                onChange={(e) => setForm({...form, dimensions: e.target.value})}
+                placeholder="e.g., 12mm"
+                required
+              />
+            )}
           </div>
         </div>
 

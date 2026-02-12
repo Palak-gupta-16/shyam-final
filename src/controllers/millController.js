@@ -18,6 +18,10 @@ const createHourlyReport = async (req, res) => {
         return res.status(400).json({ message: 'Product ID is required for each final product' });
       }
 
+      if (!product.dimension || product.dimension.trim() === '') {
+        return res.status(400).json({ message: 'Size/Dimension is required for each final product' });
+      }
+
       const inventoryItem = await Inventory.findById(product.productId);
       if (!inventoryItem || inventoryItem.type !== 'finished_product') {
         return res.status(400).json({ message: 'Invalid finished product selected' });
@@ -26,14 +30,41 @@ const createHourlyReport = async (req, res) => {
       processedFinalProducts.push({
         productId: inventoryItem._id,
         productName: inventoryItem.name,
-        dimension: product.dimension || '',
+        dimension: product.dimension,
         quantity: product.quantity || 0
       });
 
-      // Add quantity to inventory
-      inventoryItem.quantity += product.quantity || 0;
-      inventoryItem.lastUpdatedBy = req.user._id;
-      await inventoryItem.save();
+      // Add quantity to inventory (size-based for finished products)
+      if (inventoryItem.type === 'finished_product' && product.dimension) {
+        // Find if the size already exists
+        const existingSizeIndex = inventoryItem.sizes.findIndex(
+          (size) => size.dimension === product.dimension
+        );
+
+        if (existingSizeIndex !== -1) {
+          // Size exists, add to its quantity
+          inventoryItem.sizes[existingSizeIndex].quantity += product.quantity || 0;
+          inventoryItem.sizes[existingSizeIndex].availableQuantity += product.quantity || 0;
+        } else {
+          // Size doesn't exist, create new size entry
+          inventoryItem.sizes.push({
+            dimension: product.dimension,
+            quantity: product.quantity || 0,
+            reservedQuantity: 0,
+            availableQuantity: product.quantity || 0
+          });
+        }
+
+        // Also update the total quantity
+        inventoryItem.quantity += product.quantity || 0;
+        inventoryItem.lastUpdatedBy = req.user._id;
+        await inventoryItem.save();
+      } else {
+        // Legacy method if no dimension specified (shouldn't happen)
+        inventoryItem.quantity += product.quantity || 0;
+        inventoryItem.lastUpdatedBy = req.user._id;
+        await inventoryItem.save();
+      }
     }
 
     // Process and validate raw materials consumed
@@ -181,6 +212,13 @@ const createDailySummary = async (req, res) => {
       });
     }
 
+    // Validate dimension is provided for finished products
+    if (!finishedProduct.dimension || finishedProduct.dimension.trim() === '') {
+      return res.status(400).json({
+        message: 'Size/Dimension is required for finished product'
+      });
+    }
+
     // Prevent selecting the same inventory item for finished product and waste
     if (wasteMaterials && Array.isArray(wasteMaterials)) {
       const conflict = wasteMaterials.some(w => w && w.inventoryItemId && String(w.inventoryItemId) === String(finishedProductItem._id));
@@ -213,12 +251,13 @@ const createDailySummary = async (req, res) => {
     const summary = new MillDailySummary({
       date,
       name: finishedProductItem.name, // Use name from inventory item
-      dimensions: finishedProductItem.dimensions, // Use dimensions from inventory item
+      dimensions: finishedProduct.dimension || finishedProductItem.dimensions, // Use the specific dimension being produced
       billetSize,
       rawMaterials: materialValidation.processedMaterials,
       finishedProduct: {
         inventoryItemId: finishedProductItem._id,
-        quantityProduced: totalWeight
+        quantityProduced: totalWeight,
+        dimension: finishedProduct.dimension // Store the specific size/dimension
       },
       wasteMaterials: wasteValidation.processedMaterials,
       totalPieces,
@@ -233,13 +272,14 @@ const createDailySummary = async (req, res) => {
 
     await summary.save();
 
-    // Process inventory changes
+    // Process inventory changes with dimension
     await processInventoryChanges(
       materialValidation.processedMaterials,
       finishedProductItem,
       totalWeight,
       wasteValidation.processedMaterials,
-      req.user._id
+      req.user._id,
+      finishedProduct.dimension // Pass the dimension to update specific size
     );
 
     // Populate the response
@@ -526,7 +566,7 @@ const validateWasteMaterials = async (wasteMaterials = [], userId) => {
 };
 
 // Process inventory changes after mill production
-const processInventoryChanges = async (rawMaterials, finishedProductItem, totalWeight, wasteMaterials, userId) => {
+const processInventoryChanges = async (rawMaterials, finishedProductItem, totalWeight, wasteMaterials, userId, dimension) => {
   try {
     // Consume raw materials
     for (const material of rawMaterials) {
@@ -540,10 +580,37 @@ const processInventoryChanges = async (rawMaterials, finishedProductItem, totalW
       }
     }
 
-    // Add finished product to inventory
-    finishedProductItem.quantity += totalWeight;
-    finishedProductItem.lastUpdatedBy = userId;
-    await finishedProductItem.save();
+    // Add finished product to inventory (size-based for finished products)
+    if (finishedProductItem.type === 'finished_product' && dimension) {
+      // Find if the size already exists
+      const existingSizeIndex = finishedProductItem.sizes.findIndex(
+        (size) => size.dimension === dimension
+      );
+
+      if (existingSizeIndex !== -1) {
+        // Size exists, add to its quantity
+        finishedProductItem.sizes[existingSizeIndex].quantity += totalWeight;
+        finishedProductItem.sizes[existingSizeIndex].availableQuantity += totalWeight;
+      } else {
+        // Size doesn't exist, create new size entry
+        finishedProductItem.sizes.push({
+          dimension: dimension,
+          quantity: totalWeight,
+          reservedQuantity: 0,
+          availableQuantity: totalWeight
+        });
+      }
+
+      // Also update the total quantity
+      finishedProductItem.quantity += totalWeight;
+      finishedProductItem.lastUpdatedBy = userId;
+      await finishedProductItem.save();
+    } else {
+      // For non-finished products or if no dimension specified, use legacy method
+      finishedProductItem.quantity += totalWeight;
+      finishedProductItem.lastUpdatedBy = userId;
+      await finishedProductItem.save();
+    }
 
     // Add waste materials to inventory
     for (const waste of wasteMaterials) {

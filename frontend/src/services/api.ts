@@ -384,6 +384,7 @@ export const millAPI = {
     finishedProduct: {
       inventoryItemId: string;
       quantityProduced?: number;
+      dimension?: string;
     };
     totalPieces: number;
     totalWeight: number;

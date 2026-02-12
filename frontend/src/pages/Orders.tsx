@@ -452,7 +452,7 @@ const CreateOrderModal: React.FC<{
   const [formData, setFormData] = useState({
     type: 'dispatch' as 'dispatch' | 'purchase',
     customerOrSupplier: '',
-    products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0, _selectedItem: null as any }],
+    products: [{ inventoryItemId: '', name: '', length: '', quantity: 0, _selectedItem: null as any }],
   });
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -461,7 +461,7 @@ const CreateOrderModal: React.FC<{
   const addProduct = () => {
     setFormData((prev) => ({
       ...prev,
-      products: [...prev.products, { inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0, _selectedItem: null }],
+      products: [...prev.products, { inventoryItemId: '', name: '', length: '', quantity: 0, _selectedItem: null }],
     }));
   };
 
@@ -511,10 +511,6 @@ const CreateOrderModal: React.FC<{
         products: validProducts.map((product) => ({
           inventoryItemId: product.inventoryItemId,
           name: product.name,
-          dimensions:
-            product.dimensions !== undefined && product.dimensions !== null
-              ? String(product.dimensions)
-              : '',
           length:
             product.length !== undefined && product.length !== null
               ? String(product.length)
@@ -527,7 +523,7 @@ const CreateOrderModal: React.FC<{
       setFormData({
         type: 'dispatch',
         customerOrSupplier: '',
-        products: [{ inventoryItemId: '', name: '', dimensions: '', length: '', quantity: 0, _selectedItem: null }],
+        products: [{ inventoryItemId: '', name: '', length: '', quantity: 0, _selectedItem: null }],
       });
       setErrorMessage('');
       setFieldErrors({});
@@ -623,7 +619,7 @@ const CreateOrderModal: React.FC<{
                 key={index}
                 className="grid grid-cols-12 gap-4 items-end p-4 border rounded-lg"
               >
-                <div className="col-span-4">
+                <div className="col-span-5">
                   <InventoryDropdown
                     type={
                       formData.type === 'dispatch'
@@ -637,8 +633,6 @@ const CreateOrderModal: React.FC<{
                         updateProduct(index, 'name', item.name);
                         // Store the item for size dropdown
                         updateProduct(index, '_selectedItem', item);
-                        // Reset dimensions when item changes
-                        updateProduct(index, 'dimensions', '');
                         updateProduct(index, 'length',
                           item.length !== undefined && item.length !== null
                             ? String(item.length)
@@ -647,7 +641,6 @@ const CreateOrderModal: React.FC<{
                       } else {
                         updateProduct(index, 'inventoryItemId', '');
                         updateProduct(index, 'name', '');
-                        updateProduct(index, 'dimensions', '');
                         updateProduct(index, 'length', '');
                         updateProduct(index, '_selectedItem', null);
                       }
@@ -659,15 +652,6 @@ const CreateOrderModal: React.FC<{
                 </div>
                 <div className="col-span-3">
                   <Input
-                    placeholder="Dimensions (Optional)"
-                    value={product.dimensions}
-                    onChange={(e) =>
-                      updateProduct(index, 'dimensions', e.target.value)
-                    }
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Input
                     placeholder="Length"
                     value={product.length}
                     onChange={(e) =>
@@ -676,7 +660,7 @@ const CreateOrderModal: React.FC<{
                     disabled
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-3">
                   <Input
                     type="number"
                     placeholder="Quantity"

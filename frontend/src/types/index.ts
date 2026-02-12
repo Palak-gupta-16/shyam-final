@@ -271,6 +271,7 @@ export interface MillDailySummary {
   finishedProduct?: {
     inventoryItemId?: string;
     quantityProduced?: number;
+    dimension?: string; // Size of the finished product (e.g., 8mm, 10mm)
   };
   wasteMaterials?: WasteMaterialOutput[];
   createdAt: string;

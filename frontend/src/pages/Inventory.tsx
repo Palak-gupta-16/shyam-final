@@ -205,15 +205,17 @@ const Inventory: React.FC = () => {
               }}
             />
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={Edit3}
-            onClick={() => {
-              setSelectedItem(record);
-              setShowEditModal(true);
-            }}
-          />
+          {record.type !== 'finished_product' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Edit3}
+              onClick={() => {
+                setSelectedItem(record);
+                setShowEditModal(true);
+              }}
+            />
+          )}
         </div>
       ),
     },
@@ -488,25 +490,43 @@ const AddItemModal: React.FC<{
           required
         />
 
-        <div className="grid grid-cols-3 gap-4">
-          <Input
-            label="Dimensions"
-            value={formData.dimensions}
-            onChange={(e) => setFormData(prev => ({ ...prev, dimensions: e.target.value }))}
-            required={formData.type !== 'finished_product'}
-          />
-          <Input
-            label="Location"
-            value={formData.location}
-            onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
-          />
-          <Input
-            label="length"
-            type="number"
-            value={formData.length}
-            onChange={(e) => setFormData(prev => ({ ...prev, length: Number(e.target.value) }))}
-          />
-        </div>
+        {formData.type !== 'finished_product' && (
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              label="Dimensions"
+              value={formData.dimensions}
+              onChange={(e) => setFormData(prev => ({ ...prev, dimensions: e.target.value }))}
+              required
+            />
+            <Input
+              label="Location"
+              value={formData.location}
+              onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+            />
+            <Input
+              label="length"
+              type="number"
+              value={formData.length}
+              onChange={(e) => setFormData(prev => ({ ...prev, length: Number(e.target.value) }))}
+            />
+          </div>
+        )}
+
+        {formData.type === 'finished_product' && (
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Location"
+              value={formData.location}
+              onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+            />
+            <Input
+              label="length"
+              type="number"
+              value={formData.length}
+              onChange={(e) => setFormData(prev => ({ ...prev, length: Number(e.target.value) }))}
+            />
+          </div>
+        )}
 
         {/* For Finished Products: Multiple Sizes */}
         {formData.type === 'finished_product' && (

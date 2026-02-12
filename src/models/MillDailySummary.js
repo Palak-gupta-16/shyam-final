@@ -28,6 +28,10 @@ const millDailySummarySchema = new mongoose.Schema({
       type: Number,
       min: 0,
       default: 0
+    },
+    dimension: {
+      type: String,
+      trim: true
     }
   },
   wasteMaterials: [
