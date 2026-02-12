@@ -279,19 +279,109 @@ const getNeededItems = async (req, res) => {
         { blockedOrders: { $exists: true, $not: { $size: 0 } } }
       ]
     })
-    .populate('blockedOrders.orderId', 'orderNumber customerOrSupplier type priority createdAt')
+    .populate('blockedOrders.orderId', 'orderNumber customerOrSupplier type priority createdAt products')
     .populate('lastUpdatedBy', 'name alias')
     .sort({ 'blockedOrders.dateBlocked': -1 });
 
-    // Get blocked orders
+    // Calculate actual needed quantity for each item
+    const processedNeededItems = neededItems.map(item => {
+      const itemObj = item.toObject();
+      
+      // Get actual order quantities from blocked orders
+      let totalOrderQuantity = 0;
+      
+      for (const blockedOrder of (itemObj.blockedOrders || [])) {
+        if (blockedOrder.orderId && blockedOrder.orderId.products) {
+          // Find the product in this order that matches this inventory item
+          const product = blockedOrder.orderId.products.find(p => 
+            p.inventoryItemId && p.inventoryItemId.toString() === itemObj._id.toString()
+          );
+          if (product) {
+            // Use the original order quantity (not quantityPending)
+            totalOrderQuantity += (product.quantity || 0);
+          }
+        }
+      }
+      
+      // Calculate total quantity in stock
+      let totalInStock = 0;
+      if (itemObj.type === 'finished_product' && itemObj.sizes && itemObj.sizes.length > 0) {
+        totalInStock = itemObj.sizes.reduce((sum, size) => sum + (size.quantity || 0), 0);
+      } else {
+        totalInStock = itemObj.quantity || 0;
+      }
+      
+      // Calculate the actual shortfall (original order - available stock)
+      const shortfall = Math.max(0, totalOrderQuantity - totalInStock);
+      
+      // Show the shortfall as the needed quantity
+      itemObj.quantity = shortfall;
+      itemObj._calculatedNeeded = {
+        totalNeeded: totalOrderQuantity,
+        available: totalInStock,
+        shortfall: shortfall
+      };
+      
+      return itemObj;
+    });
+
+    const filteredNeededItems = processedNeededItems.filter(item => item.quantity > 0); // Only show items with shortfall > 0
+
+    // Get blocked orders with real-time pending calculation
     const blockedOrders = await Order.findBlockedOrders()
-      .populate('products.inventoryItemId', 'name dimensions sku availableQuantity');
+      .populate('products.inventoryItemId', 'name dimensions sku availableQuantity quantity sizes');
+
+    // Update blocked orders with real-time pending quantities
+    const updatedBlockedOrders = blockedOrders.map(order => {
+      const orderObj = order.toObject();
+      
+      // Build real-time blocked reason
+      const blockedReasons = [];
+      
+      orderObj.products = orderObj.products.map(product => {
+        if (product.inventoryItemId) {
+          const invItem = product.inventoryItemId;
+          let availableStock = 0;
+          
+          // Calculate available stock
+          if (invItem.sizes && invItem.sizes.length > 0) {
+            availableStock = invItem.sizes.reduce((sum, size) => sum + (size.quantity || 0), 0);
+          } else {
+            availableStock = invItem.quantity || 0;
+          }
+          
+          // Calculate real-time pending (what's still needed after accounting for current stock)
+          const totalNeeded = product.quantity || 0;
+          const realTimePending = Math.max(0, totalNeeded - availableStock);
+          
+          product.quantityPending = realTimePending;
+          
+          // Update blocked reason if still short
+          if (realTimePending > 0) {
+            if (availableStock === 0) {
+              blockedReasons.push(`${product.name} - Out of stock`);
+            } else {
+              blockedReasons.push(`${product.name} - Partial stock (${availableStock}/${totalNeeded})`);
+            }
+          }
+        }
+        
+        return product;
+      });
+      
+      // Update blocked reason with real-time info
+      if (blockedReasons.length > 0) {
+        orderObj.blockedReason = blockedReasons.join('; ');
+      }
+      
+      return orderObj;
+    });
 
     res.json({
       message: 'Needed items and blocked orders retrieved',
       data: {
-        neededItems,
-        blockedOrders
+        neededItems: filteredNeededItems,
+        blockedOrders: updatedBlockedOrders
       }
     });
 

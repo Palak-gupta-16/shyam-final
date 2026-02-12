@@ -312,9 +312,9 @@ const getBlockedOrders = async (req, res) => {
 // Try to fulfill blocked order
 const tryFulfillBlockedOrder = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const { id } = req.params;
 
-    const order = await Order.findById(orderId).populate(
+    const order = await Order.findById(id).populate(
       "products.inventoryItemId"
     );
 
@@ -366,7 +366,7 @@ const tryFulfillBlockedOrder = async (req, res) => {
 
         // Remove from blocked orders
         inventoryItem.blockedOrders = inventoryItem.blockedOrders.filter(
-          (b) => b.orderId.toString() !== orderId
+          (b) => b.orderId.toString() !== id
         );
 
         await inventoryItem.save();
@@ -961,12 +961,6 @@ const loadingComplete = async (req, res) => {
               index + 1
             }`,
           });
-      }
-
-      if (aggregated.bundles !== orderProduct.quantity) {
-        return res.status(400).json({
-          message: `Loaded bundles for ${orderProduct.name} (${aggregated.bundles}) do not match ordered quantity (${orderProduct.quantity}).`,
-        });
       }
 
       const inventoryItemId =

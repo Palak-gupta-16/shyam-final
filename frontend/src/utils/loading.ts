@@ -43,25 +43,20 @@ export const buildLoadingPayload = (
 ): LoadingPayloadBuildResult => {
   if (!state.productLoads || state.productLoads.length === 0) {
     return {
-      errors: ['Please provide bundle information for all products before completing loading.']
+      errors: ['Please add at least one bundle before submitting.']
     };
   }
 
-  const errors: string[] = [];
   const payloadLoads: LoadingCompletePayload['productLoads'] = [];
 
   let totalBundles = 0;
   let totalWeight = 0;
+  let hasAnyBundles = false;
 
   order.products.forEach((product, index) => {
     const loadEntry = state.productLoads.find((load) => load.productIndex === index);
-    if (!loadEntry) {
-      errors.push(`No bundle details provided for ${product.name}.`);
-      return;
-    }
-
-    if (!Array.isArray(loadEntry.bundleDetails) || loadEntry.bundleDetails.length === 0) {
-      errors.push(`Add at least one bundle entry for ${product.name}.`);
+    if (!loadEntry || !Array.isArray(loadEntry.bundleDetails) || loadEntry.bundleDetails.length === 0) {
+      // Skip products with no bundles - no error, just skip
       return;
     }
 
@@ -69,20 +64,18 @@ export const buildLoadingPayload = (
     let productWeight = 0;
 
     loadEntry.bundleDetails.forEach((bundle, bundleIndex) => {
-      const weightValue = Number(bundle.weight);
-      if (Number.isNaN(weightValue) || weightValue <= 0) {
-        errors.push(`Bundle ${bundleIndex + 1} for ${product.name} must have a valid weight.`);
-        return;
-      }
+      hasAnyBundles = true;
+      
+      // Convert weight to number, default to 0 if invalid
+      const weightValue = Number(bundle.weight) || 0;
 
+      // Convert length to number if provided
       let lengthValue: number | undefined;
       if (bundle.length !== undefined && bundle.length !== null && bundle.length !== '') {
         const parsedLength = Number(bundle.length);
-        if (Number.isNaN(parsedLength) || parsedLength < 0) {
-          errors.push(`Bundle ${bundleIndex + 1} for ${product.name} must have a positive length.`);
-          return;
+        if (!Number.isNaN(parsedLength)) {
+          lengthValue = Number(parsedLength.toFixed(3));
         }
-        lengthValue = Number(parsedLength.toFixed(3));
       }
 
       const sanitizedBundle = {
@@ -107,12 +100,6 @@ export const buildLoadingPayload = (
       return;
     }
 
-    if (product.quantity && sanitizedBundles.length !== product.quantity) {
-      errors.push(
-        `${product.name} expects ${product.quantity} bundle entries but ${sanitizedBundles.length} were provided.`
-      );
-    }
-
     const bundleCount = sanitizedBundles.length;
     totalBundles += bundleCount;
     totalWeight += productWeight;
@@ -126,8 +113,9 @@ export const buildLoadingPayload = (
     });
   });
 
-  if (errors.length > 0) {
-    return { errors };
+  // Only check if form is completely empty
+  if (!hasAnyBundles) {
+    return { errors: ['Please add at least one bundle before submitting.'] };
   }
 
   const payload: LoadingCompletePayload = {

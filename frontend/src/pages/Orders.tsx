@@ -452,7 +452,7 @@ const CreateOrderModal: React.FC<{
   const [formData, setFormData] = useState({
     type: 'dispatch' as 'dispatch' | 'purchase',
     customerOrSupplier: '',
-    products: [{ inventoryItemId: '', name: '', length: '', quantity: 0, _selectedItem: null as any }],
+    products: [{ inventoryItemId: '', name: '', size: '', length: '', quantity: 0, _selectedItem: null as any }],
   });
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -461,7 +461,7 @@ const CreateOrderModal: React.FC<{
   const addProduct = () => {
     setFormData((prev) => ({
       ...prev,
-      products: [...prev.products, { inventoryItemId: '', name: '', length: '', quantity: 0, _selectedItem: null }],
+      products: [...prev.products, { inventoryItemId: '', name: '', size: '', length: '', quantity: 0, _selectedItem: null }],
     }));
   };
 
@@ -511,6 +511,7 @@ const CreateOrderModal: React.FC<{
         products: validProducts.map((product) => ({
           inventoryItemId: product.inventoryItemId,
           name: product.name,
+          dimensions: product.size || '',
           length:
             product.length !== undefined && product.length !== null
               ? String(product.length)
@@ -523,7 +524,7 @@ const CreateOrderModal: React.FC<{
       setFormData({
         type: 'dispatch',
         customerOrSupplier: '',
-        products: [{ inventoryItemId: '', name: '', length: '', quantity: 0, _selectedItem: null }],
+        products: [{ inventoryItemId: '', name: '', size: '', length: '', quantity: 0, _selectedItem: null }],
       });
       setErrorMessage('');
       setFieldErrors({});
@@ -619,7 +620,7 @@ const CreateOrderModal: React.FC<{
                 key={index}
                 className="grid grid-cols-12 gap-4 items-end p-4 border rounded-lg"
               >
-                <div className="col-span-5">
+                <div className="col-span-4">
                   <InventoryDropdown
                     type={
                       formData.type === 'dispatch'
@@ -633,6 +634,7 @@ const CreateOrderModal: React.FC<{
                         updateProduct(index, 'name', item.name);
                         // Store the item for size dropdown
                         updateProduct(index, '_selectedItem', item);
+                        updateProduct(index, 'size', ''); // Reset size when material changes
                         updateProduct(index, 'length',
                           item.length !== undefined && item.length !== null
                             ? String(item.length)
@@ -641,6 +643,7 @@ const CreateOrderModal: React.FC<{
                       } else {
                         updateProduct(index, 'inventoryItemId', '');
                         updateProduct(index, 'name', '');
+                        updateProduct(index, 'size', '');
                         updateProduct(index, 'length', '');
                         updateProduct(index, '_selectedItem', null);
                       }
@@ -651,6 +654,21 @@ const CreateOrderModal: React.FC<{
                   />
                 </div>
                 <div className="col-span-3">
+                  <select
+                    value={product.size}
+                    onChange={(e) => updateProduct(index, 'size', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={!product._selectedItem || !product._selectedItem.sizes || product._selectedItem.sizes.length === 0}
+                  >
+                    <option value="">Select size...</option>
+                    {product._selectedItem?.sizes?.map((sizeObj: any, sIdx: number) => (
+                      <option key={sIdx} value={sizeObj.dimension}>
+                        {sizeObj.dimension} ({sizeObj.availableQuantity || 0} available)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-2">
                   <Input
                     placeholder="Length"
                     value={product.length}
@@ -660,7 +678,7 @@ const CreateOrderModal: React.FC<{
                     disabled
                   />
                 </div>
-                <div className="col-span-3">
+                <div className="col-span-2">
                   <Input
                     type="number"
                     placeholder="Quantity"

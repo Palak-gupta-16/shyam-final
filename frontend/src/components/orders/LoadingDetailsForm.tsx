@@ -170,7 +170,6 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
           || (typeof inventoryRef === 'string' ? inventoryRef : inventoryObject?._id)
           || 'N/A';
 
-        const expectedBundles = product.quantity || 0;
         const recordedBundles = load.bundleDetails ? load.bundleDetails.length : 0;
         const recordedWeight = (load.bundleDetails || []).reduce((sum, detail) => {
           const weightValue = Number(detail.weight);
@@ -191,8 +190,6 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
           }));
         };
 
-        const bundleMismatch = expectedBundles > 0 && recordedBundles !== expectedBundles;
-
         return (
           <div key={productKey} className="border border-gray-200 rounded-lg p-4">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
@@ -203,10 +200,8 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
                   {product.dimensions ? ` • Dimensions: ${product.dimensions}` : ''}
                   {product.length ? ` • Length: ${product.length}` : ''}
                 </p>
-                <p className={`text-sm mt-1 ${bundleMismatch ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                <p className="text-sm mt-1 text-gray-500">
                   Recorded bundles: <strong>{recordedBundles}</strong>
-                  {expectedBundles ? ` / Expected: ${expectedBundles}` : ''}
-                  {bundleMismatch && ' ⚠️ Mismatch!'}
                 </p>
                 <p className="text-sm text-gray-500">
                   Total weight: <strong>{recordedWeight.toFixed(2)} kg</strong>
@@ -329,7 +324,6 @@ const LoadingDetailsForm: React.FC<LoadingDetailsFormProps> = ({ order, state, o
                       label="Weight (kg)"
                       type="number"
                       step="0.01"
-                      required
                       value={bundle.weight ?? ''}
                       onChange={(e) =>
                         handleBundleFieldChange(load.productIndex, bundleIndex, 'weight', e.target.value)

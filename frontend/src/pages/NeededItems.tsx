@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   Clock,
@@ -19,6 +20,7 @@ import { inventoryAPI, ordersAPI } from '../services/api';
 import { InventoryItem, Order } from '../types';
 
 const NeededItems: React.FC = () => {
+  const navigate = useNavigate();
   const [neededItems, setNeededItems] = useState<InventoryItem[]>([]);
   const [blockedOrders, setBlockedOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,15 +46,15 @@ const NeededItems: React.FC = () => {
   };
 
   const handleFulfillOrder = async (orderId: string) => {
+    setFulfilling(orderId);
     try {
-      setFulfilling(orderId);
       await ordersAPI.fulfillBlockedOrder(orderId);
       await fetchNeededItems(); // Refresh data
     } catch (error: any) {
       console.error('Error fulfilling order:', error);
-      alert(error.response?.data?.message || 'Failed to fulfill order');
     } finally {
-      setFulfilling(null);
+      // Always redirect to inventory page
+      navigate('/inventory');
     }
   };
 
@@ -116,6 +118,11 @@ const NeededItems: React.FC = () => {
         <div className="text-right">
           <div className="font-medium text-red-600">{value.toLocaleString()}</div>
           <div className="text-sm text-gray-500">{record.unit}</div>
+          {record._calculatedNeeded && (
+            <div className="text-xs text-gray-400 mt-1">
+              {record._calculatedNeeded.totalNeeded} needed - {record._calculatedNeeded.available} available
+            </div>
+          )}
         </div>
       ),
     },

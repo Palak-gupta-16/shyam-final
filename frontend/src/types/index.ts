@@ -173,6 +173,11 @@ export interface InventoryItem {
   availableQuantity?: number;
   lastUpdatedBy?: string;
   blockedOrders?: BlockedOrder[];
+  _calculatedNeeded?: {
+    totalNeeded: number;
+    available: number;
+    shortfall: number;
+  };
   createdAt: string;
   updatedAt: string;
 }
