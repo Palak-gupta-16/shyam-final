@@ -5,7 +5,6 @@ import {
   TrendingUp,
   Clock,
   Gauge,
-  BarChart3,
   Download,
   AlertTriangle,
   CheckCircle
@@ -30,6 +29,7 @@ const MillReports: React.FC = () => {
   );
   const [showAddReportModal, setShowAddReportModal] = useState(false);
   const [showAddSummaryModal, setShowAddSummaryModal] = useState(false);
+  const [submittingSummaryId, setSubmittingSummaryId] = useState<string | null>(null);
 
 const fetchReports = useCallback(async () => {
   try {
@@ -171,6 +171,47 @@ const fetchReports = useCallback(async () => {
     { key: 'totalMissRolls', title: 'Miss Rolls', align: 'right' as const },
     { key: 'productionHours', title: 'Prod. Hours', align: 'right' as const },
     { key: 'efficiency', title: 'Efficiency (%)', align: 'right' as const },
+    {
+      key: 'electricity',
+      title: 'Electricity (kWh)',
+      align: 'right' as const,
+      render: (_: any, record: MillDailySummary) =>
+        record.electricity?.consumption !== undefined
+          ? Number(record.electricity.consumption).toFixed(2)
+          : '-'
+    },
+    {
+      key: 'isSubmitted',
+      title: 'Status',
+      render: (v: boolean) => (v ? 'Submitted' : 'Draft')
+    },
+    {
+      key: 'actions',
+      title: 'Actions',
+      render: (_: any, record: MillDailySummary) => (
+        record.isSubmitted ? (
+          <span className="text-gray-500">Locked</span>
+        ) : (
+          <Button
+            size="sm"
+            loading={submittingSummaryId === record._id}
+            onClick={async () => {
+              try {
+                setSubmittingSummaryId(record._id);
+                await millAPI.submitDailySummary(record._id);
+                await fetchReports();
+              } catch (error) {
+                console.error('Error submitting daily summary:', error);
+              } finally {
+                setSubmittingSummaryId(null);
+              }
+            }}
+          >
+            Submit
+          </Button>
+        )
+      )
+    },
     { key: 'breakdownSummary', title: 'Breakdown Summary' }
   ];
 
@@ -737,6 +778,8 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     breakdownSummary: '',
     productionHours: 0,
     efficiency: 0,
+    electricityStartReading: 0,
+    electricityEndReading: 0,
     remarks: '',
     finishedProduct: { inventoryItemId: '', dimension: '' },
     rawMaterials: [
@@ -746,7 +789,6 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
   });
   const [loading, setLoading] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   const [availableSizes, setAvailableSizes] = useState<Array<{dimension: string, quantity: number}>>([]);
 
   const handleMaterialChange = (index: number, key: string, value: any) => {
@@ -836,6 +878,14 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
     if (form.totalWeight <= 0) {
       errors.push('Total weight must be greater than 0');
     }
+
+    if (form.electricityStartReading < 0 || form.electricityEndReading < 0) {
+      errors.push('Electricity readings must be non-negative');
+    }
+
+    if (form.electricityEndReading < form.electricityStartReading) {
+      errors.push('Electricity end reading must be greater than or equal to start reading');
+    }
     
     if (form.rawMaterials.length === 0) {
       errors.push('At least one raw material is required');
@@ -907,6 +957,10 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
           inventoryItemId: form.finishedProduct.inventoryItemId,
           quantityProduced: form.totalWeight,
           dimension: form.finishedProduct.dimension === '__new__' ? form.dimensions : form.finishedProduct.dimension
+        },
+        electricityReadings: {
+          startReading: form.electricityStartReading,
+          endReading: form.electricityEndReading,
         }
       });
       onSuccess();
@@ -921,12 +975,13 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
         breakdownSummary: '',
         productionHours: 0,
         efficiency: 0,
+        electricityStartReading: 0,
+        electricityEndReading: 0,
         remarks: '',
         finishedProduct: { inventoryItemId: '', dimension: '' },
         rawMaterials: [{ inventoryItemId: '', materialName: '', quantityUsed: 0, unit: 'kg' }],
         wasteMaterials: []
       });
-      setSelectedProduct(null);
       setAvailableSizes([]);
     } catch (error: any) {
       console.error('Error creating daily summary:', error);
@@ -982,7 +1037,6 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
               type="finished_product"
               value={form.finishedProduct?.inventoryItemId || null}
               onChange={(item) => {
-                setSelectedProduct(item);
                 setAvailableSizes(item?.sizes || []);
                 setForm({
                   ...form,
@@ -1090,6 +1144,25 @@ const AddDailySummaryModal: React.FC<any> = ({ isOpen, onClose, onSuccess, defau
             min="0" 
             max="100"
             step="0.1"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input
+            label="Electricity Start Reading"
+            type="number"
+            value={form.electricityStartReading}
+            onChange={e => setForm({...form, electricityStartReading: Number(e.target.value)})}
+            min="0"
+            step="0.01"
+          />
+          <Input
+            label="Electricity End Reading"
+            type="number"
+            value={form.electricityEndReading}
+            onChange={e => setForm({...form, electricityEndReading: Number(e.target.value)})}
+            min="0"
+            step="0.01"
           />
         </div>
 

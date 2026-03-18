@@ -16,7 +16,16 @@ const gatePassSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true
+    },
+    driverContact: {
+      type: String,
+      required: true,
+      trim: true
     }
+  },
+  relatedOrderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Order'
   },
   purpose: {
     type: String,
@@ -26,14 +35,20 @@ const gatePassSchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['pending', 'approved', 'rejected'],
-    default: 'pending'
+    enum: ['pending', 'pending_approval', 'approved', 'rejected', 'inside_factory', 'exited'],
+    default: 'pending_approval'
   },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
   approvedAt: {
+    type: Date
+  },
+  entryTime: {
+    type: Date
+  },
+  exitTime: {
     type: Date
   },
   rejectedBy: {

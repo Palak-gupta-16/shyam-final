@@ -37,6 +37,7 @@ const Accounts: React.FC = () => {
   const [fareForm, setFareForm] = useState({
     fareAmount: 0,
     paidBy: 'our_side' as 'our_side' | 'other_party',
+    paymentStatus: 'unpaid' as 'paid' | 'unpaid',
     fareNotes: ''
   });
   const [invoiceForm, setInvoiceForm] = useState({
@@ -90,7 +91,7 @@ const Accounts: React.FC = () => {
       await ordersAPI.updateFareDetails(selectedOrder._id, fareForm);
       setShowFareModal(false);
       setSelectedOrder(null);
-      setFareForm({ fareAmount: 0, paidBy: 'our_side', fareNotes: '' });
+      setFareForm({ fareAmount: 0, paidBy: 'our_side', paymentStatus: 'unpaid', fareNotes: '' });
       fetchOrders();
     } catch (error) {
       console.error('Error updating fare:', error);
@@ -119,6 +120,7 @@ const Accounts: React.FC = () => {
     setFareForm({
       fareAmount: order.invoice?.fare?.amount || 0,
       paidBy: order.invoice?.fare?.paidBy || 'our_side',
+      paymentStatus: order.invoice?.fare?.paymentStatus || 'unpaid',
       fareNotes: order.invoice?.fare?.notes || ''
     });
     setShowFareModal(true);
@@ -141,6 +143,35 @@ const Accounts: React.FC = () => {
   const generateInvoiceView = (order: Order) => {
     const invoice = order.invoice;
     const fare = invoice?.fare;
+
+    const taxPercentage = Number(invoice?.TaxPercentage || 18);
+    const totalQuantity = order.products.reduce((sum, product) => sum + (Number(product.quantity) || 0), 0);
+    const ratePerUnit = Number(invoice?.RatePerUnit || 0) ||
+      (totalQuantity > 0
+        ? Number((((invoice?.amount || 0) / (1 + taxPercentage / 100)) / totalQuantity).toFixed(2))
+        : 0);
+
+    const taxableAmount = Number(
+      order.products
+        .reduce((sum, product) => sum + (Number(product.quantity) || 0) * ratePerUnit, 0)
+        .toFixed(2)
+    );
+
+    const cgstRate = Number((taxPercentage / 2).toFixed(2));
+    const sgstRate = Number((taxPercentage / 2).toFixed(2));
+    const cgstAmount = Number((taxableAmount * (cgstRate / 100)).toFixed(2));
+    const sgstAmount = Number((taxableAmount * (sgstRate / 100)).toFixed(2));
+    const calculatedTotal = Number((taxableAmount + cgstAmount + sgstAmount).toFixed(2));
+    const finalAmount = Number((invoice?.amount || calculatedTotal).toFixed(2));
+    const roundOff = Number((finalAmount - calculatedTotal).toFixed(2));
+
+    const formatMoney = (value: number) => value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const invoiceDate = new Date(invoice?.generatedAt || order.updatedAt || order.createdAt).toLocaleDateString('en-GB');
+    const hsnCode = '7216';
+    const billNumber = invoice?.billNumber || order.orderNumber;
+    const vehicleNumber = order.vehicle?.number || 'N/A';
+    const dispatchDate = order.weights?.slipUrl || invoiceDate;
     
     const invoiceHTML = `
       <!DOCTYPE html>
@@ -148,107 +179,143 @@ const Accounts: React.FC = () => {
       <head>
         <title>Invoice #${invoice?.billNumber || 'N/A'}</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 40px; }
-          .header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid #333; padding-bottom: 20px; }
-          .header h1 { margin: 0; color: #333; }
-          .info { margin: 20px 0; }
-          .info-row { display: flex; justify-content: space-between; margin: 10px 0; }
-          .info-label { font-weight: bold; }
-          .table { width: 100%; border-collapse: collapse; margin: 30px 0; }
-          .table th, .table td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-          .table th { background-color: #f4f4f4; font-weight: bold; }
-          .total-section { margin-top: 30px; text-align: right; }
-          .total-row { margin: 10px 0; font-size: 16px; }
-          .total-row.grand { font-size: 20px; font-weight: bold; border-top: 2px solid #333; padding-top: 10px; }
-          .fare-section { background: #f9f9f9; padding: 15px; margin: 20px 0; border-radius: 5px; }
-          @media print { button { display: none; } }
+          body { font-family: Arial, sans-serif; margin: 16px; color: #111; }
+          .title { text-align: center; font-weight: 700; margin-bottom: 8px; font-size: 18px; }
+          .box { border: 1px solid #000; }
+          .row { display: flex; border-bottom: 1px solid #000; }
+          .row:last-child { border-bottom: 0; }
+          .col { padding: 6px 8px; border-right: 1px solid #000; font-size: 12px; }
+          .col:last-child { border-right: 0; }
+          .w-40 { width: 40%; }
+          .w-30 { width: 30%; }
+          .w-20 { width: 20%; }
+          .w-10 { width: 10%; }
+          .label { font-weight: 700; }
+          .items th, .items td { border: 1px solid #000; padding: 6px; font-size: 12px; }
+          .items { width: 100%; border-collapse: collapse; margin-top: 0; }
+          .right { text-align: right; }
+          .center { text-align: center; }
+          .totals { margin-top: 8px; width: 100%; border-collapse: collapse; }
+          .totals td { border: 1px solid #000; padding: 6px; font-size: 12px; }
+          .footnote { margin-top: 10px; font-size: 11px; }
+          .print-actions { margin-top: 20px; text-align: center; }
+          .btn { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; }
+          .btn-primary { background: #0d6efd; color: #fff; }
+          .btn-secondary { background: #6c757d; color: #fff; margin-left: 8px; }
+          @media print { .print-actions { display: none; } body { margin: 0; } }
         </style>
       </head>
       <body>
-        <div class="header">
-          <h1>SHYAM SUPER APP</h1>
-          <p>Invoice #${invoice?.billNumber || 'N/A'}</p>
-          <p>Date: ${new Date().toLocaleDateString()}</p>
-        </div>
-        
-        <div class="info">
-          <div class="info-row">
-            <div><span class="info-label">Order Number:</span> #${order.orderNumber}</div>
-            <div><span class="info-label">Order Type:</span> ${order.type.toUpperCase()}</div>
+        <div class="title">Tax Invoice</div>
+        <div class="box">
+          <div class="row">
+            <div class="col w-40">
+              <div class="label">BHOPAL ISPAT PVT. LTD.</div>
+              <div>Vidisha Road, Bhopal, MP</div>
+              <div>GSTIN: 23AAKCB2691R1Z3</div>
+              <div>State Code: 23</div>
+            </div>
+            <div class="col w-20">
+              <div class="label">Invoice No.</div>
+              <div>BIPL/25-26/${billNumber}</div>
+            </div>
+            <div class="col w-20">
+              <div class="label">Dated</div>
+              <div>${invoiceDate}</div>
+            </div>
+            <div class="col w-20">
+              <div class="label">Mode/Terms</div>
+              <div>By Road</div>
+            </div>
           </div>
-          <div class="info-row">
-            <div><span class="info-label">${order.type === 'dispatch' ? 'Customer' : 'Supplier'}:</span> ${order.customerOrSupplier}</div>
-            <div><span class="info-label">Vehicle:</span> ${order.vehicle?.number || 'N/A'}</div>
-          </div>
-          ${order.vehicle?.driverName ? `
-          <div class="info-row">
-            <div><span class="info-label">Driver:</span> ${order.vehicle.driverName}</div>
-            <div><span class="info-label">Contact:</span> ${order.vehicle.driverNumber || 'N/A'}</div>
-          </div>
-          ` : ''}
-        </div>
 
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Dimensions</th>
-              <th>Quantity</th>
-              <th>Unit</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${order.products.map(product => `
+          <div class="row">
+            <div class="col w-40">
+              <div class="label">Consignee (Ship To)</div>
+              <div>${order.customerOrSupplier}</div>
+              <div>Bhopal, Madhya Pradesh</div>
+            </div>
+            <div class="col w-20">
+              <div class="label">Dispatch Doc No.</div>
+              <div>${order.orderNumber}</div>
+            </div>
+            <div class="col w-20">
+              <div class="label">Delivery Note Date</div>
+              <div>${dispatchDate}</div>
+            </div>
+            <div class="col w-20">
+              <div class="label">Vehicle No.</div>
+              <div>${vehicleNumber}</div>
+            </div>
+          </div>
+
+          <table class="items">
+            <thead>
               <tr>
-                <td>${product.name}</td>
-                <td>${product.dimensions || 'N/A'}</td>
-                <td>${product.quantity}</td>
-                <td>${product.unit || 'pcs'}</td>
+                <th class="center" style="width:6%">S. No.</th>
+                <th style="width:36%">Description of Goods</th>
+                <th class="center" style="width:12%">HSN/SAC</th>
+                <th class="right" style="width:12%">Quantity</th>
+                <th class="right" style="width:14%">Rate</th>
+                <th class="center" style="width:8%">Per</th>
+                <th class="right" style="width:12%">Amount</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${order.products.map((product, idx) => {
+                const qty = Number(product.quantity) || 0;
+                const amount = Number((qty * ratePerUnit).toFixed(2));
+                return `
+                  <tr>
+                    <td class="center">${idx + 1}</td>
+                    <td>${product.name} ${product.dimensions ? ` ${product.dimensions}` : ''}</td>
+                    <td class="center">${hsnCode}</td>
+                    <td class="right">${qty.toFixed(3)}</td>
+                    <td class="right">${formatMoney(ratePerUnit)}</td>
+                    <td class="center">${product.unit || 'MT'}</td>
+                    <td class="right">${formatMoney(amount)}</td>
+                  </tr>
+                `;
+              }).join('')}
+              <tr>
+                <td colspan="6" class="right"><b>Taxable Value</b></td>
+                <td class="right"><b>${formatMoney(taxableAmount)}</b></td>
+              </tr>
+              <tr>
+                <td colspan="6" class="right"><b>CGST ${cgstRate}%</b></td>
+                <td class="right"><b>${formatMoney(cgstAmount)}</b></td>
+              </tr>
+              <tr>
+                <td colspan="6" class="right"><b>SGST ${sgstRate}%</b></td>
+                <td class="right"><b>${formatMoney(sgstAmount)}</b></td>
+              </tr>
+              <tr>
+                <td colspan="6" class="right"><b>Round Off</b></td>
+                <td class="right"><b>${formatMoney(roundOff)}</b></td>
+              </tr>
+              <tr>
+                <td colspan="6" class="right"><b>Total</b></td>
+                <td class="right"><b>${formatMoney(finalAmount)}</b></td>
+              </tr>
+            </tbody>
+          </table>
 
-        ${order.weights ? `
-        <div class="info">
-          <h3>Weight Details</h3>
-          <div class="info-row">
-            <div><span class="info-label">Empty Weight:</span> ${order.weights.emptyWeight || 'N/A'} kg</div>
-            <div><span class="info-label">Final Weight:</span> ${order.weights.finalWeight || 'N/A'} kg</div>
+          <table class="totals">
+            <tr>
+              <td style="width:50%"><b>Weight Details</b><br/>Empty: ${order.weights?.emptyWeight || 0} kg<br/>Final: ${order.weights?.finalWeight || 0} kg<br/>Net: ${order.netWeight || 0} kg</td>
+              <td style="width:50%"><b>Fare Details</b><br/>Amount: ${fare?.amount ? `INR ${formatMoney(fare.amount)}` : 'N/A'}<br/>Paid By: ${fare?.paidBy === 'our_side' ? 'Our Side' : fare?.paidBy === 'other_party' ? 'Other Party' : 'N/A'}<br/>Payment: ${fare?.paymentStatus || 'N/A'}</td>
+            </tr>
+          </table>
+
+          <div class="footnote">
+            <div><b>Amount in Words:</b> INR ${Math.round(finalAmount).toLocaleString('en-IN')} only</div>
+            <div style="margin-top:6px;">This is a computer generated invoice.</div>
+            ${invoice?.invoiceNotes ? `<div style="margin-top:6px;"><b>Notes:</b> ${invoice.invoiceNotes}</div>` : ''}
           </div>
-          <div class="info-row">
-            <div><span class="info-label">Net Weight:</span> ${order.netWeight || 'N/A'} kg</div>
-          </div>
         </div>
-        ` : ''}
-
-        ${fare ? `
-        <div class="fare-section">
-          <h3>Transportation Fare</h3>
-          <div class="info-row">
-            <div><span class="info-label">Fare Amount:</span> ₹${fare.amount?.toLocaleString() || '0'}</div>
-            <div><span class="info-label">Paid By:</span> ${fare.paidBy === 'our_side' ? 'Our Side' : 'Other Party'}</div>
-          </div>
-          ${fare.notes ? `<div><span class="info-label">Notes:</span> ${fare.notes}</div>` : ''}
-        </div>
-        ` : ''}
-
-        <div class="total-section">
-          ${invoice?.RatePerUnit ? `<div class="total-row">Rate per Unit: ₹${invoice.RatePerUnit.toLocaleString()}</div>` : ''}
-          ${invoice?.TaxPercentage ? `<div class="total-row">Tax: ${invoice.TaxPercentage}%</div>` : ''}
-          <div class="total-row grand">Total Amount: ₹${invoice?.amount?.toLocaleString() || '0'}</div>
-        </div>
-
-        ${invoice?.invoiceNotes ? `
-        <div class="info" style="margin-top: 30px;">
-          <h3>Notes</h3>
-          <p>${invoice.invoiceNotes}</p>
-        </div>
-        ` : ''}
-
-        <div style="margin-top: 50px; text-align: center;">
-          <button onclick="window.print()" style="padding: 10px 30px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">Print Invoice</button>
-          <button onclick="window.close()" style="padding: 10px 30px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-left: 10px;">Close</button>
+        <div class="print-actions">
+          <button class="btn btn-primary" onclick="window.print()">Print Invoice</button>
+          <button class="btn btn-secondary" onclick="window.close()">Close</button>
         </div>
       </body>
       </html>
@@ -414,6 +481,9 @@ const Accounts: React.FC = () => {
                     Paid By
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Payment
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Invoice
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -427,13 +497,13 @@ const Accounts: React.FC = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
                       Loading orders...
                     </td>
                   </tr>
                 ) : filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
                       No orders found
                     </td>
                   </tr>
@@ -483,6 +553,18 @@ const Accounts: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
+                        {order.invoice?.fare?.paymentStatus ? (
+                          <Badge
+                            variant={order.invoice.fare.paymentStatus === 'paid' ? 'success' : 'warning'}
+                            size="sm"
+                          >
+                            {order.invoice.fare.paymentStatus}
+                          </Badge>
+                        ) : (
+                          <span className="text-sm text-gray-400 italic">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                         {order.invoice?.billNumber ? (
                           <div className="flex items-center">
                             <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
@@ -520,14 +602,16 @@ const Accounts: React.FC = () => {
                               >
                                 Edit Fare
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                icon={FileText}
-                                onClick={() => openInvoiceModal(order)}
-                              >
-                                Generate Invoice
-                              </Button>
+                              {order.type === 'dispatch' && order.status === 'ready_for_billing' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  icon={FileText}
+                                  onClick={() => openInvoiceModal(order)}
+                                >
+                                  Generate Invoice
+                                </Button>
+                              )}
                             </>
                           )}
                           {order.invoice?.billNumber && (
@@ -621,6 +705,42 @@ const Accounts: React.FC = () => {
                     <div>
                       <div className="font-medium text-gray-900">Other Party</div>
                       <div className="text-sm text-gray-500">Customer/Supplier will pay the fare</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Status
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentStatus"
+                      value="paid"
+                      checked={fareForm.paymentStatus === 'paid'}
+                      onChange={(e) => setFareForm(prev => ({ ...prev, paymentStatus: e.target.value as 'paid' | 'unpaid' }))}
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900">Paid</div>
+                      <div className="text-sm text-gray-500">Fare has been settled</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="paymentStatus"
+                      value="unpaid"
+                      checked={fareForm.paymentStatus === 'unpaid'}
+                      onChange={(e) => setFareForm(prev => ({ ...prev, paymentStatus: e.target.value as 'paid' | 'unpaid' }))}
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium text-gray-900">Unpaid</div>
+                      <div className="text-sm text-gray-500">Fare is pending payment</div>
                     </div>
                   </label>
                 </div>

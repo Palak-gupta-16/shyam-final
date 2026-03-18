@@ -64,6 +64,73 @@ const storeIssuanceSchema = new mongoose.Schema({
     type: Number,
     min: 0
   },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: {
+    type: Date
+  },
+  approvedQuantity: {
+    type: Number,
+    min: 0
+  },
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rejectedAt: {
+    type: Date
+  },
+  rejectionReason: {
+    type: String,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['raised', 'approved', 'rejected', 'issued', 'returned', 'under_repair', 'repaired', 'scrapped'],
+    default: 'raised'
+  },
+  issuedAt: {
+    type: Date
+  },
+  returnedAt: {
+    type: Date
+  },
+  repairedAt: {
+    type: Date
+  },
+  scrappedAt: {
+    type: Date
+  },
+  history: [{
+    by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    action: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    fromStatus: {
+      type: String,
+      trim: true
+    },
+    toStatus: {
+      type: String,
+      trim: true
+    },
+    note: {
+      type: String,
+      trim: true
+    },
+    at: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   remarks: {
     type: String,
     trim: true
@@ -77,5 +144,6 @@ storeIssuanceSchema.index({ issuedBy: 1 });
 storeIssuanceSchema.index({ dateIssued: -1 });
 storeIssuanceSchema.index({ issuedTo: 1 });
 storeIssuanceSchema.index({ department: 1 });
+storeIssuanceSchema.index({ status: 1 });
 
 module.exports = mongoose.model('StoreIssuance', storeIssuanceSchema);

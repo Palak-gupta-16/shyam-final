@@ -9,7 +9,7 @@ router.use(authenticate);
 
 // Create gate pass request
 router.post('/',
-  authorize( 'Director', 'General_Manager'),
+  authorize('Guard', 'General_Manager', 'Director'),
   logActivity('GATEPASS_CREATE', 'GatePass'),
   gatePassController.createGatePass
 );
@@ -28,22 +28,36 @@ router.patch('/:id/reject',
   gatePassController.rejectGatePass
 );
 
+// Mark gate pass entry
+router.patch('/:id/mark-entered',
+  authorize('Guard', 'General_Manager', 'Director'),
+  logActivity('GATEPASS_MARK_ENTERED', 'GatePass'),
+  gatePassController.markGatePassEntered
+);
+
+// Mark gate pass exit
+router.patch('/:id/mark-exited',
+  authorize('Guard', 'General_Manager', 'Director'),
+  logActivity('GATEPASS_MARK_EXITED', 'GatePass'),
+  gatePassController.markGatePassExited
+);
+
 // Get gate passes with filters
 router.get('/',
-  authorize('Director', 'General_Manager'),
+  authorize('Guard', 'Director', 'General_Manager'),
   gatePassController.getGatePasses
 );
 
 // Get gate pass by ID
-router.get('/:id',
-  authorize('Director', 'General_Manager'),
-  gatePassController.getGatePassById
+router.get('/status/pending',
+  authorize('Guard', 'Director', 'General_Manager'),
+  gatePassController.getPendingGatePasses
 );
 
-// Get pending gate passes
-router.get('/status/pending',
-  authorize('Director', 'General_Manager'),
-  gatePassController.getPendingGatePasses
+// Get gate pass by ID
+router.get('/:id',
+  authorize('Guard', 'Director', 'General_Manager'),
+  gatePassController.getGatePassById
 );
 
 module.exports = router;

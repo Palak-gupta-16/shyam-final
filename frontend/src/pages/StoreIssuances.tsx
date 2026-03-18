@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Store, 
-  Plus, 
-  Search, 
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Store,
+  Plus,
+  Search,
   User,
   Calendar,
   CheckCircle,
   Clock,
   AlertTriangle,
-  FileText
+  Wrench,
+  Trash2,
+  Send,
+  XCircle,
 } from 'lucide-react';
 import DashboardLayout from '../components/layout/DashboardLayout';
 import Card from '../components/common/Card';
@@ -19,26 +22,91 @@ import Badge from '../components/common/Badge';
 import Table from '../components/common/Table';
 import { storeAPI } from '../services/api';
 import { StoreIssuance } from '../types';
-// import { useAuth } from '../context/AuthContext';
+
+const lifecycleStatuses = [
+  'raised',
+  'approved',
+  'rejected',
+  'issued',
+  'returned',
+  'under_repair',
+  'repaired',
+  'scrapped',
+] as const;
+
+type LifecycleStatus = typeof lifecycleStatuses[number];
+
+type ActionType =
+  | 'approve'
+  | 'reject'
+  | 'issue'
+  | 'return'
+  | 'under_repair'
+  | 'repair'
+  | 'scrap';
+
+const statusLabel = (status: LifecycleStatus) => {
+  switch (status) {
+    case 'raised':
+      return 'Raised';
+    case 'approved':
+      return 'Approved';
+    case 'rejected':
+      return 'Rejected';
+    case 'issued':
+      return 'Issued';
+    case 'returned':
+      return 'Returned';
+    case 'under_repair':
+      return 'Under Repair';
+    case 'repaired':
+      return 'Repaired';
+    case 'scrapped':
+      return 'Scrapped';
+    default:
+      return status;
+  }
+};
+
+const getStatusBadge = (status: LifecycleStatus) => {
+  switch (status) {
+    case 'raised':
+      return <Badge variant="warning" size="sm" dot>Raised</Badge>;
+    case 'approved':
+      return <Badge variant="primary" size="sm" dot>Approved</Badge>;
+    case 'rejected':
+      return <Badge variant="error" size="sm" dot>Rejected</Badge>;
+    case 'issued':
+      return <Badge variant="success" size="sm" dot>Issued</Badge>;
+    case 'returned':
+      return <Badge variant="secondary" size="sm" dot>Returned</Badge>;
+    case 'under_repair':
+      return <Badge variant="warning" size="sm" dot>Under Repair</Badge>;
+    case 'repaired':
+      return <Badge variant="success" size="sm" dot>Repaired</Badge>;
+    case 'scrapped':
+      return <Badge variant="error" size="sm" dot>Scrapped</Badge>;
+    default:
+      return <Badge variant="secondary" size="sm" dot>{status}</Badge>;
+  }
+};
 
 const StoreIssuances: React.FC = () => {
-  // const { user } = useAuth(); // User auth context available if needed
   const [issuances, setIssuances] = useState<StoreIssuance[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showApproveModal, setShowApproveModal] = useState(false);
-  const [selectedIssuance, setSelectedIssuance] = useState<StoreIssuance | null>(null);
+  const [actionIssuance, setActionIssuance] = useState<StoreIssuance | null>(null);
+  const [actionType, setActionType] = useState<ActionType | null>(null);
 
   const fetchIssuances = useCallback(async () => {
     try {
       setLoading(true);
-      const params: any = {};
-      if (selectedStatus !== 'all') params.status = selectedStatus;
-      
-      const data = await storeAPI.getIssuanceStats();
-      setIssuances(Array.isArray(data) ? data : []);
+      const response = await storeAPI.getStoreIssuances(
+        selectedStatus !== 'all' ? { status: selectedStatus } : undefined
+      );
+      setIssuances(response.issuances || []);
     } catch (error) {
       console.error('Error fetching store issuances:', error);
       setIssuances([]);
@@ -51,86 +119,118 @@ const StoreIssuances: React.FC = () => {
     fetchIssuances();
   }, [fetchIssuances]);
 
+  const filteredIssuances = useMemo(() => {
+    return issuances.filter((issuance) => {
+      const value = searchTerm.toLowerCase();
+      return (
+        issuance.issuedTo.toLowerCase().includes(value) ||
+        issuance.item.name.toLowerCase().includes(value) ||
+        (issuance.purpose || '').toLowerCase().includes(value) ||
+        (issuance.department || '').toLowerCase().includes(value)
+      );
+    });
+  }, [issuances, searchTerm]);
 
+  const stats = useMemo(() => {
+    const byStatus = (status: LifecycleStatus) => issuances.filter((item) => item.status === status).length;
 
-  const handleApprove = async (issuanceId: string, approvalData: any) => {
-    try {
-      // Note: This would need to be implemented in the API
-      console.log('Approving issuance:', issuanceId, approvalData);
-      fetchIssuances();
-      setShowApproveModal(false);
-      setSelectedIssuance(null);
-    } catch (error) {
-      console.error('Error approving issuance:', error);
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'issued':
-        return <Badge variant="success" size="sm" dot>Issued</Badge>;
-      case 'returned':
-        return <Badge variant="primary" size="sm" dot>Returned</Badge>;
-      default:
-        return <Badge variant="warning" size="sm" dot>Pending</Badge>;
-    }
-  };
-
-
-
-  const getStats = () => {
     return [
-      {
-        title: 'Total Requests',
-        value: issuances.length,
-        icon: Store,
-        color: 'primary' as const,
-      },
-      {
-        title: 'Pending Approval',
-        value: issuances.filter(i => !i.returned).length,
-        icon: Clock,
-        color: 'warning' as const,
-      },
-      {
-        title: 'Approved',
-        value: issuances.filter(i => i.returned).length,
-        icon: CheckCircle,
-        color: 'success' as const,
-      },
-      {
-        title: 'High Priority',
-        value: issuances.filter(i => i.returnExpected).length,
-        icon: AlertTriangle,
-        color: 'error' as const,
-      },
+      { title: 'Total Requests', value: issuances.length, icon: Store, color: 'primary' as const },
+      { title: 'Raised', value: byStatus('raised'), icon: Clock, color: 'warning' as const },
+      { title: 'Issued', value: byStatus('issued'), icon: Send, color: 'success' as const },
+      { title: 'Under Repair', value: byStatus('under_repair'), icon: AlertTriangle, color: 'error' as const },
     ];
+  }, [issuances]);
+
+  const triggerAction = (issuance: StoreIssuance, action: ActionType) => {
+    setActionIssuance(issuance);
+    setActionType(action);
   };
 
-  const filteredIssuances = issuances.filter(issuance =>
-    issuance.issuedTo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    issuance.item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (issuance.purpose || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const closeActionModal = () => {
+    setActionIssuance(null);
+    setActionType(null);
+  };
+
+  const renderActions = (record: StoreIssuance) => {
+    const actions: React.ReactNode[] = [];
+
+    if (record.status === 'raised') {
+      actions.push(
+        <Button key="approve" variant="success" size="sm" icon={CheckCircle} onClick={() => triggerAction(record, 'approve')}>
+          Approve
+        </Button>
+      );
+      actions.push(
+        <Button key="reject" variant="danger" size="sm" icon={XCircle} onClick={() => triggerAction(record, 'reject')}>
+          Reject
+        </Button>
+      );
+    }
+
+    if (record.status === 'approved') {
+      actions.push(
+        <Button key="issue" variant="primary" size="sm" icon={Send} onClick={() => triggerAction(record, 'issue')}>
+          Issue
+        </Button>
+      );
+    }
+
+    if (record.status === 'issued') {
+      actions.push(
+        <Button key="return" variant="secondary" size="sm" icon={CheckCircle} onClick={() => triggerAction(record, 'return')}>
+          Return
+        </Button>
+      );
+      actions.push(
+        <Button key="repair" variant="warning" size="sm" icon={Wrench} onClick={() => triggerAction(record, 'under_repair')}>
+          Under Repair
+        </Button>
+      );
+      actions.push(
+        <Button key="scrap" variant="danger" size="sm" icon={Trash2} onClick={() => triggerAction(record, 'scrap')}>
+          Scrap
+        </Button>
+      );
+    }
+
+    if (record.status === 'under_repair') {
+      actions.push(
+        <Button key="mark-repaired" variant="success" size="sm" icon={Wrench} onClick={() => triggerAction(record, 'repair')}>
+          Mark Repaired
+        </Button>
+      );
+      actions.push(
+        <Button key="scrap-from-repair" variant="danger" size="sm" icon={Trash2} onClick={() => triggerAction(record, 'scrap')}>
+          Scrap
+        </Button>
+      );
+    }
+
+    if (actions.length === 0) {
+      return <span className="text-sm text-gray-400 italic">No actions</span>;
+    }
+
+    return <div className="flex flex-wrap gap-2">{actions}</div>;
+  };
 
   const columns = [
     {
       key: '_id',
       title: 'Request ID',
-      render: (value: string) => (
-        <span className="font-mono text-sm">#{value.slice(-6)}</span>
-      ),
+      render: (value: string) => <span className="font-mono text-sm">#{value.slice(-6)}</span>,
     },
     {
       key: 'issuedTo',
-      title: 'Issued To',
-      render: (value: string) => (
+      title: 'Requested For',
+      render: (value: string, record: StoreIssuance) => (
         <div className="flex items-center space-x-3">
           <div className="p-2 bg-blue-50 rounded-lg">
             <User className="h-4 w-4 text-blue-600" />
           </div>
           <div>
             <div className="font-medium text-gray-900">{value}</div>
+            <div className="text-sm text-gray-500">{record.department || 'No Department'}</div>
           </div>
         </div>
       ),
@@ -138,33 +238,25 @@ const StoreIssuances: React.FC = () => {
     {
       key: 'item',
       title: 'Item',
-      render: (item: any) => (
+      render: (item: StoreIssuance['item'], record: StoreIssuance) => (
         <div>
           <div className="font-medium">{item.name}</div>
-          <div className="text-sm text-gray-500">Qty: {item.quantity} {item.unit}</div>
+          <div className="text-sm text-gray-500">
+            Requested: {item.quantity} {item.unit}
+            {record.approvedQuantity ? ` | Approved: ${record.approvedQuantity} ${item.unit}` : ''}
+          </div>
         </div>
       ),
     },
     {
+      key: 'status',
+      title: 'Status',
+      render: (value: LifecycleStatus) => getStatusBadge(value),
+    },
+    {
       key: 'purpose',
       title: 'Purpose',
-      render: (value: string) => (
-        <span className="text-gray-900 max-w-xs truncate block">{value}</span>
-      ),
-    },
-    {
-      key: 'returnExpected',
-      title: 'Return Expected',
-      render: (value: boolean) => (
-        <Badge variant={value ? "warning" : "secondary"} size="sm">
-          {value ? "Yes" : "No"}
-        </Badge>
-      ),
-    },
-    {
-      key: 'returned',
-      title: 'Status',
-      render: (value: boolean) => getStatusBadge(value ? 'returned' : 'issued'),
+      render: (value: string) => <span className="text-gray-900 max-w-xs truncate block">{value || 'N/A'}</span>,
     },
     {
       key: 'createdAt',
@@ -172,66 +264,33 @@ const StoreIssuances: React.FC = () => {
       render: (value: string) => (
         <div className="flex items-center space-x-2">
           <Calendar className="h-4 w-4 text-gray-400" />
-          <span className="text-sm text-gray-600">
-            {new Date(value).toLocaleDateString()}
-          </span>
+          <span className="text-sm text-gray-600">{new Date(value).toLocaleDateString()}</span>
         </div>
       ),
     },
     {
       key: 'actions',
       title: 'Actions',
-      render: (_: any, record: StoreIssuance) => (
-        <div className="flex items-center space-x-2">
-          {!record.returned && (
-            <Button
-              variant="success"
-              size="sm"
-              icon={CheckCircle}
-              onClick={() => {
-                setSelectedIssuance(record);
-                setShowApproveModal(true);
-              }}
-            >
-              Issue
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={FileText}
-            onClick={() => {
-              // View details logic
-            }}
-          >
-            View
-          </Button>
-        </div>
-      ),
+      render: (_: unknown, record: StoreIssuance) => renderActions(record),
     },
   ];
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Store Issuances</h1>
-            <p className="text-gray-600 mt-2">Manage store item requests and approvals</p>
+            <h1 className="text-3xl font-bold text-gray-900">Store Requests</h1>
+            <p className="text-gray-600 mt-2">Manage raise, approval, issue, return, repair, and scrap lifecycle</p>
           </div>
-          <Button
-            icon={Plus}
-            onClick={() => setShowCreateModal(true)}
-          >
-            New Request
+          <Button icon={Plus} onClick={() => setShowCreateModal(true)}>
+            Raise Request
           </Button>
         </div>
 
-        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {getStats().map((stat, index) => (
-            <Card key={index}>
+          {stats.map((stat) => (
+            <Card key={stat.title}>
               <Card.Body>
                 <div className="flex items-center">
                   <div className="flex-1">
@@ -247,45 +306,36 @@ const StoreIssuances: React.FC = () => {
           ))}
         </div>
 
-        {/* Filters and Search */}
         <Card>
           <Card.Body>
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
                 <Input
-                  placeholder="Search by requester, items, or purpose..."
+                  placeholder="Search by name, item, department, or purpose"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   icon={Search}
                 />
               </div>
-              <div className="flex gap-2">
+              <div>
                 <select
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
                   className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="issued">Issued</option>
-                  <option value="rejected">Rejected</option>
+                  {lifecycleStatuses.map((status) => (
+                    <option key={status} value={status}>{statusLabel(status)}</option>
+                  ))}
                 </select>
               </div>
             </div>
           </Card.Body>
         </Card>
 
-        {/* Issuances Table */}
-        <Table
-          columns={columns}
-          data={filteredIssuances}
-          loading={loading}
-          emptyText="No store issuances found"
-        />
+        <Table columns={columns} data={filteredIssuances} loading={loading} emptyText="No store requests found" />
 
-        {/* Create Issuance Modal */}
-        <CreateIssuanceModal
+        <CreateRequestModal
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
@@ -294,16 +344,16 @@ const StoreIssuances: React.FC = () => {
           }}
         />
 
-        {/* Approve Issuance Modal */}
-        {selectedIssuance && (
-          <ApproveIssuanceModal
-            isOpen={showApproveModal}
-            onClose={() => {
-              setShowApproveModal(false);
-              setSelectedIssuance(null);
+        {actionIssuance && actionType && (
+          <LifecycleActionModal
+            isOpen={Boolean(actionIssuance && actionType)}
+            onClose={closeActionModal}
+            issuance={actionIssuance}
+            actionType={actionType}
+            onDone={() => {
+              closeActionModal();
+              fetchIssuances();
             }}
-            issuance={selectedIssuance}
-            onApprove={handleApprove}
           />
         )}
       </div>
@@ -311,262 +361,246 @@ const StoreIssuances: React.FC = () => {
   );
 };
 
-// Create Issuance Modal
-const CreateIssuanceModal: React.FC<{
+const CreateRequestModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }> = ({ isOpen, onClose, onSuccess }) => {
-  const [items, setItems] = useState([{ sku: '', name: '', quantity: 1 }]);
-  const [purpose, setPurpose] = useState('');
-  const [priority, setPriority] = useState('medium');
+  const [formData, setFormData] = useState({
+    issuedTo: '',
+    department: '',
+    employeeId: '',
+    itemName: '',
+    quantity: 1,
+    unit: 'pieces',
+    purpose: '',
+    returnExpected: false,
+    remarks: '',
+  });
   const [loading, setLoading] = useState(false);
-
-  const addItem = () => {
-    setItems([...items, { sku: '', name: '', quantity: 1 }]);
-  };
-
-  const removeItem = (index: number) => {
-    if (items.length > 1) {
-      setItems(items.filter((_, i) => i !== index));
-    }
-  };
-
-  const updateItem = (index: number, field: string, value: any) => {
-    const newItems = [...items];
-    newItems[index] = { ...newItems[index], [field]: value };
-    setItems(newItems);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setLoading(true);
       await storeAPI.issueStoreItem({
-        issuedTo: 'Employee Name', // This would come from form
+        issuedTo: formData.issuedTo,
+        department: formData.department,
+        employeeId: formData.employeeId,
         item: {
-          name: items[0]?.name || '',
-          quantity: items[0]?.quantity || 0,
-          unit: 'pieces',
+          name: formData.itemName,
+          quantity: Number(formData.quantity),
+          unit: formData.unit,
         },
-        purpose,
-        department: 'Production',
-        returnExpected: priority === 'high',
+        purpose: formData.purpose,
+        returnExpected: formData.returnExpected,
+        remarks: formData.remarks,
       });
       onSuccess();
-      setItems([{ sku: '', name: '', quantity: 1 }]);
-      setPurpose('');
-      setPriority('medium');
+      setFormData({
+        issuedTo: '',
+        department: '',
+        employeeId: '',
+        itemName: '',
+        quantity: 1,
+        unit: 'pieces',
+        purpose: '',
+        returnExpected: false,
+        remarks: '',
+      });
     } catch (error) {
-      console.error('Error creating issuance:', error);
+      console.error('Error raising request:', error);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Create Store Issuance Request" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Items Section */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <label className="block text-sm font-medium text-gray-700">Items Requested</label>
-            <Button type="button" variant="secondary" size="sm" onClick={addItem}>
-              Add Item
-            </Button>
-          </div>
-          
-          <div className="space-y-3">
-            {items.map((item, index) => (
-              <div key={index} className="grid grid-cols-12 gap-3 items-end">
-                <div className="col-span-4">
-                  <Input
-                    placeholder="SKU"
-                    value={item.sku}
-                    onChange={(e) => updateItem(index, 'sku', e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="col-span-5">
-                  <Input
-                    placeholder="Item Name"
-                    value={item.name}
-                    onChange={(e) => updateItem(index, 'name', e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Input
-                    type="number"
-                    placeholder="Qty"
-                    min="1"
-                    value={item.quantity}
-                    onChange={(e) => updateItem(index, 'quantity', Number(e.target.value))}
-                    required
-                  />
-                </div>
-                <div className="col-span-1">
-                  {items.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      onClick={() => removeItem(index)}
-                    >
-                      ×
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+    <Modal isOpen={isOpen} onClose={onClose} title="Raise Store Request" size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input
+          label="Requested For"
+          value={formData.issuedTo}
+          onChange={(e) => setFormData((prev) => ({ ...prev, issuedTo: e.target.value }))}
+          required
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Input
+            label="Department"
+            value={formData.department}
+            onChange={(e) => setFormData((prev) => ({ ...prev, department: e.target.value }))}
+          />
+          <Input
+            label="Employee ID"
+            value={formData.employeeId}
+            onChange={(e) => setFormData((prev) => ({ ...prev, employeeId: e.target.value }))}
+          />
         </div>
-
-        {/* Purpose */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Input
+            label="Item Name"
+            value={formData.itemName}
+            onChange={(e) => setFormData((prev) => ({ ...prev, itemName: e.target.value }))}
+            required
+          />
+          <Input
+            label="Quantity"
+            type="number"
+            min="1"
+            value={String(formData.quantity)}
+            onChange={(e) => setFormData((prev) => ({ ...prev, quantity: Number(e.target.value) || 1 }))}
+            required
+          />
+          <Input
+            label="Unit"
+            value={formData.unit}
+            onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+            required
+          />
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Purpose</label>
           <textarea
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-            placeholder="Describe the purpose for these items..."
-            required
+            value={formData.purpose}
+            onChange={(e) => setFormData((prev) => ({ ...prev, purpose: e.target.value }))}
             rows={3}
-            className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+        <label className="flex items-center space-x-3">
+          <input
+            type="checkbox"
+            checked={formData.returnExpected}
+            onChange={(e) => setFormData((prev) => ({ ...prev, returnExpected: e.target.checked }))}
+          />
+          <span className="text-sm text-gray-700">Return expected</span>
+        </label>
+        <Input
+          label="Remarks"
+          value={formData.remarks}
+          onChange={(e) => setFormData((prev) => ({ ...prev, remarks: e.target.value }))}
+        />
 
-        {/* Priority */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-            className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-
-        <div className="flex justify-end space-x-3 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={loading}>
-            Submit Request
-          </Button>
+        <div className="flex justify-end space-x-2 pt-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={loading}>Raise Request</Button>
         </div>
       </form>
     </Modal>
   );
 };
 
-// Approve Issuance Modal
-const ApproveIssuanceModal: React.FC<{
+const LifecycleActionModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   issuance: StoreIssuance;
-  onApprove: (id: string, data: any) => void;
-}> = ({ isOpen, onClose, issuance, onApprove }) => {
-  const [approvedQuantities, setApprovedQuantities] = useState<Record<string, number>>({});
-  const [notes, setNotes] = useState('');
+  actionType: ActionType;
+  onDone: () => void;
+}> = ({ isOpen, onClose, issuance, actionType, onDone }) => {
+  const [approvedQuantity, setApprovedQuantity] = useState<number>(issuance.item.quantity);
+  const [quantity, setQuantity] = useState<number>(issuance.approvedQuantity || issuance.item.quantity);
+  const [reason, setReason] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const quantities: Record<string, number> = {};
-    quantities[0] = issuance.item.quantity;
-    setApprovedQuantities(quantities);
-  }, [issuance]);
+    setApprovedQuantity(issuance.item.quantity);
+    setQuantity(issuance.approvedQuantity || issuance.item.quantity);
+    setReason('');
+    setRemarks('');
+  }, [issuance, actionType]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const actionTitleMap: Record<ActionType, string> = {
+    approve: 'Approve Request',
+    reject: 'Reject Request',
+    issue: 'Issue Approved Request',
+    return: 'Mark Returned',
+    under_repair: 'Move To Under Repair',
+    repair: 'Mark Repaired',
+    scrap: 'Mark Scrapped',
+  };
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const approvedItems = {
-      ...issuance.item,
-      approvedQuantity: approvedQuantities[0] || 0,
-    };
+    try {
+      setLoading(true);
 
-    onApprove(issuance._id, {
-      item: approvedItems,
-      notes,
-    });
+      if (actionType === 'approve') {
+        await storeAPI.approveStoreRequest(issuance._id, { approvedQuantity: Number(approvedQuantity), remarks });
+      } else if (actionType === 'reject') {
+        await storeAPI.rejectStoreRequest(issuance._id, { reason, remarks });
+      } else if (actionType === 'issue') {
+        await storeAPI.markStoreIssued(issuance._id, { remarks });
+      } else if (actionType === 'return') {
+        await storeAPI.returnStoreItem(issuance._id, { quantity: Number(quantity), remarks });
+      } else if (actionType === 'under_repair') {
+        await storeAPI.markStoreUnderRepair(issuance._id, { remarks });
+      } else if (actionType === 'repair') {
+        await storeAPI.markStoreRepaired(issuance._id, { quantity: Number(quantity), remarks });
+      } else if (actionType === 'scrap') {
+        await storeAPI.markStoreScrapped(issuance._id, { remarks });
+      }
+
+      onDone();
+    } catch (error) {
+      console.error('Lifecycle action failed:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Approve Store Issuance" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Request Details */}
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-medium text-gray-900 mb-2">Request Details</h4>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-gray-600">Requested by:</span>
-              <span className="ml-2 font-medium">{issuance.issuedTo}</span>
-            </div>
-            <div>
-              <span className="text-gray-600">Priority:</span>
-              <span className="ml-2">
-                <Badge variant={issuance.returnExpected ? "warning" : "secondary"} size="sm">
-                  {issuance.returnExpected ? "Return Expected" : "No Return"}
-                </Badge>
-              </span>
-            </div>
-            <div className="col-span-2">
-              <span className="text-gray-600">Purpose:</span>
-              <p className="mt-1 text-gray-900">{issuance.purpose}</p>
-            </div>
-          </div>
+    <Modal isOpen={isOpen} onClose={onClose} title={actionTitleMap[actionType]} size="md">
+      <form onSubmit={submit} className="space-y-4">
+        <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700">
+          <div><strong>Item:</strong> {issuance.item.name}</div>
+          <div><strong>Requested:</strong> {issuance.item.quantity} {issuance.item.unit}</div>
+          <div><strong>Current Status:</strong> {statusLabel(issuance.status)}</div>
         </div>
 
-        {/* Items Approval */}
-        <div>
-          <h4 className="font-medium text-gray-900 mb-3">Approve Quantities</h4>
-          <div className="space-y-3">
-            <div className="grid grid-cols-12 gap-3 items-center p-3 bg-gray-50 rounded-lg">
-              <div className="col-span-3">
-                <span className="font-medium text-gray-900">{issuance.item.name}</span>
-              </div>
-              <div className="col-span-4">
-                <span className="text-gray-700">{issuance.item.unit}</span>
-              </div>
-              <div className="col-span-2 text-center">
-                <span className="text-sm text-gray-600">Requested: {issuance.item.quantity}</span>
-              </div>
-              <div className="col-span-3">
-                <Input
-                  type="number"
-                  min="0"
-                  max={issuance.item.quantity}
-                  value={approvedQuantities[0] || 0}
-                  onChange={(e) => setApprovedQuantities(prev => ({
-                    ...prev,
-                    0: Number(e.target.value)
-                  }))}
-                  placeholder="Approved qty"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Notes */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Approval Notes</label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Any notes or conditions for approval..."
-            rows={3}
-            className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+        {actionType === 'approve' && (
+          <Input
+            label="Approved Quantity"
+            type="number"
+            min="1"
+            max={String(issuance.item.quantity)}
+            value={String(approvedQuantity)}
+            onChange={(e) => setApprovedQuantity(Number(e.target.value) || 1)}
+            required
           />
-        </div>
+        )}
 
-        <div className="flex justify-end space-x-3 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="success">
-            Approve Request
-          </Button>
+        {(actionType === 'return' || actionType === 'repair') && (
+          <Input
+            label="Quantity"
+            type="number"
+            min="1"
+            max={String(issuance.approvedQuantity || issuance.item.quantity)}
+            value={String(quantity)}
+            onChange={(e) => setQuantity(Number(e.target.value) || 1)}
+            required
+          />
+        )}
+
+        {actionType === 'reject' && (
+          <Input
+            label="Rejection Reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            required
+          />
+        )}
+
+        <Input
+          label="Remarks"
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+        />
+
+        <div className="flex justify-end space-x-2 pt-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={loading}>Confirm</Button>
         </div>
       </form>
     </Modal>

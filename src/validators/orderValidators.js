@@ -344,7 +344,7 @@ const addVehicleDetailsSchema = Joi.object({
 });
 
 const updateFareDetailsSchema = Joi.object({
-  amount: Joi.number()
+  fareAmount: Joi.number()
     .min(0)
     .required()
     .messages({
@@ -359,7 +359,14 @@ const updateFareDetailsSchema = Joi.object({
       'any.only': 'Paid by must be either our_side or other_party',
       'any.required': 'Paid by is required'
     }),
-  notes: Joi.string()
+  paymentStatus: Joi.string()
+    .valid('paid', 'unpaid')
+    .required()
+    .messages({
+      'any.only': 'Payment status must be either paid or unpaid',
+      'any.required': 'Payment status is required'
+    }),
+  fareNotes: Joi.string()
     .trim()
     .max(500)
     .allow('')

@@ -1,6 +1,59 @@
 const { MillHourlyReport, MillDailySummary, Inventory } = require('../models');
 const { checkAndFulfillBlockedOrders } = require('./inventoryController');
 
+const getDayBounds = (dateInput) => {
+  const date = new Date(dateInput);
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+};
+
+const getHourlyAggregation = (hourlyReports) => {
+  const totalPieces = hourlyReports.reduce(
+    (sum, report) =>
+      sum + (report.finalProducts || []).reduce((productSum, product) => productSum + (Number(product.quantity) || 0), 0),
+    0
+  );
+
+  const breakdownSummary = hourlyReports
+    .flatMap((report) => report.breakdowns || [])
+    .filter(Boolean)
+    .join('; ');
+
+  return {
+    totalPieces,
+    productionHours: hourlyReports.length,
+    breakdownSummary,
+  };
+};
+
+const buildElectricityPayload = (electricityReadings, userId) => {
+  if (!electricityReadings) {
+    return null;
+  }
+
+  const startReading = Number(electricityReadings.startReading);
+  const endReading = Number(electricityReadings.endReading);
+
+  if (!Number.isFinite(startReading) || !Number.isFinite(endReading) || startReading < 0 || endReading < 0) {
+    return { error: 'Electricity readings must be non-negative numbers' };
+  }
+
+  if (endReading < startReading) {
+    return { error: 'Electricity end reading must be greater than or equal to start reading' };
+  }
+
+  return {
+    startReading,
+    endReading,
+    consumption: endReading - startReading,
+    capturedAt: new Date(),
+    capturedBy: userId,
+  };
+};
+
 // Create hourly report with new structure (final products, raw materials, waste)
 const createHourlyReport = async (req, res) => {
   try {
@@ -179,7 +232,8 @@ const createDailySummary = async (req, res) => {
       totalMissRolls, 
       productionHours, 
       efficiency, 
-      remarks 
+      remarks,
+      electricityReadings
     } = req.body;
 
     // Check if summary already exists for this date
@@ -188,6 +242,17 @@ const createDailySummary = async (req, res) => {
       return res.status(400).json({ 
         message: 'Daily summary already exists for this date' 
       });
+    }
+
+    const { start, end } = getDayBounds(date);
+    const hourlyReports = await MillHourlyReport.find({
+      date: { $gte: start, $lte: end },
+    }).lean();
+    const hourlyAggregation = getHourlyAggregation(hourlyReports);
+
+    const electricityPayload = buildElectricityPayload(electricityReadings, req.user._id);
+    if (electricityPayload && electricityPayload.error) {
+      return res.status(400).json({ message: electricityPayload.error });
     }
 
     // Validate finished product inventory item is provided
@@ -260,13 +325,14 @@ const createDailySummary = async (req, res) => {
         dimension: finishedProduct.dimension // Store the specific size/dimension
       },
       wasteMaterials: wasteValidation.processedMaterials,
-      totalPieces,
+      totalPieces: Number(totalPieces) > 0 ? Number(totalPieces) : hourlyAggregation.totalPieces,
       totalWeight,
-      breakdownSummary,
+      breakdownSummary: breakdownSummary || hourlyAggregation.breakdownSummary,
       createdBy: req.user._id,
       totalMissRolls,
-      productionHours,
+      productionHours: Number(productionHours) > 0 ? Number(productionHours) : hourlyAggregation.productionHours,
       efficiency,
+      electricity: electricityPayload || undefined,
       remarks
     });
 
@@ -284,6 +350,7 @@ const createDailySummary = async (req, res) => {
 
     // Populate the response
     await summary.populate('createdBy', 'name alias role');
+    await summary.populate('submittedBy', 'name alias role');
     await summary.populate('rawMaterials.inventoryItemId', 'name sku availableQuantity');
     await summary.populate('finishedProduct.inventoryItemId', 'name sku quantity');
     await summary.populate('wasteMaterials.inventoryItemId', 'name sku quantity');
@@ -774,6 +841,7 @@ const getDailySummaries = async (req, res) => {
 
     const summaries = await MillDailySummary.find(filter)
       .populate('createdBy', 'name alias')
+      .populate('submittedBy', 'name alias')
       .populate('rawMaterials.inventoryItemId', 'name sku')
       .populate('finishedProduct.inventoryItemId', 'name sku quantity')
       .populate('wasteMaterials.inventoryItemId', 'name sku quantity')
@@ -847,6 +915,10 @@ const editDailySummary = async (req, res) => {
       return res.status(404).json({ message: 'Summary not found' });
     }
 
+    if (summary.isSubmitted) {
+      return res.status(400).json({ message: 'Submitted daily summary is locked and cannot be edited' });
+    }
+
     // Update editable fields
     if (breakdownSummary !== undefined) summary.breakdownSummary = breakdownSummary;
     if (productionHours !== undefined) summary.productionHours = productionHours;
@@ -855,6 +927,7 @@ const editDailySummary = async (req, res) => {
 
     await summary.save();
     await summary.populate('createdBy', 'name alias');
+    await summary.populate('submittedBy', 'name alias');
 
     res.json({
       message: 'Daily summary updated',
@@ -867,6 +940,71 @@ const editDailySummary = async (req, res) => {
   }
 };
 
+const updateDailyElectricity = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { startReading, endReading } = req.body;
+
+    const summary = await MillDailySummary.findById(id);
+    if (!summary) {
+      return res.status(404).json({ message: 'Summary not found' });
+    }
+
+    if (summary.isSubmitted) {
+      return res.status(400).json({ message: 'Submitted daily summary is locked and cannot be updated' });
+    }
+
+    if (summary.electricity && Number.isFinite(summary.electricity.startReading) && Number.isFinite(summary.electricity.endReading)) {
+      return res.status(400).json({ message: 'Electricity readings already captured for this day' });
+    }
+
+    const electricityPayload = buildElectricityPayload({ startReading, endReading }, req.user._id);
+    if (electricityPayload.error) {
+      return res.status(400).json({ message: electricityPayload.error });
+    }
+
+    summary.electricity = electricityPayload;
+    await summary.save();
+
+    res.status(200).json({
+      message: 'Electricity readings captured',
+      summary,
+    });
+  } catch (error) {
+    console.error('Update daily electricity error:', error);
+    res.status(500).json({ message: 'Server error updating electricity readings' });
+  }
+};
+
+const submitDailySummary = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const summary = await MillDailySummary.findById(id);
+    if (!summary) {
+      return res.status(404).json({ message: 'Summary not found' });
+    }
+
+    if (summary.isSubmitted) {
+      return res.status(400).json({ message: 'Daily summary already submitted' });
+    }
+
+    summary.isSubmitted = true;
+    summary.submittedAt = new Date();
+    summary.submittedBy = req.user._id;
+    await summary.save();
+    await summary.populate('submittedBy', 'name alias role');
+
+    res.status(200).json({
+      message: 'Daily summary submitted and locked',
+      summary,
+    });
+  } catch (error) {
+    console.error('Submit daily summary error:', error);
+    res.status(500).json({ message: 'Server error submitting daily summary' });
+  }
+};
+
 module.exports = {
   createHourlyReport,
   createDailySummary,
@@ -876,5 +1014,7 @@ module.exports = {
   getHourlyReports,
   getDailySummaries,
   editHourlyReport,
-  editDailySummary
+  editDailySummary,
+  updateDailyElectricity,
+  submitDailySummary
 };

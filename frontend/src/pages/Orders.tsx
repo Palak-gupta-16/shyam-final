@@ -114,6 +114,9 @@ const Orders: React.FC = () => {
       case 'final-weight':
         await ordersAPI.recordFinalWeight(selectedOrder._id, actionData);
         break;
+      case 'add-fare':
+        await ordersAPI.updateFareDetails(selectedOrder._id, actionData);
+        break;
       case 'generate-invoice':
         await ordersAPI.generateInvoice(selectedOrder._id, actionData);
         break;

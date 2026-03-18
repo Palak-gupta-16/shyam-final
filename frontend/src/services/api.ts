@@ -213,6 +213,7 @@ getOrdersByStatus: async (params?: {
   updateFareDetails: async (orderId: string, data: {
     fareAmount: number;
     paidBy: 'our_side' | 'other_party';
+    paymentStatus: 'paid' | 'unpaid';
     fareNotes?: string;
   }): Promise<ApiResponse<Order>> => {
     const response: AxiosResponse<ApiResponse<Order>> = await api.patch(`/orders/${orderId}/fare-details`, data);
@@ -321,8 +322,9 @@ export const gatePassAPI = {
   },
 
   createGatePass: async (data: {
-    vehicle: { number: string; driverName: string };
+    vehicle: { number: string; driverName: string; driverContact: string };
     purpose: string;
+    relatedOrderId?: string;
   }): Promise<ApiResponse<GatePass>> => {
     const response: AxiosResponse<ApiResponse<GatePass>> = await api.post('/gatepasses', data);
     return response.data;
@@ -337,6 +339,16 @@ export const gatePassAPI = {
     const response: AxiosResponse<ApiResponse<GatePass>> = await api.patch(`/gatepasses/${gatePassId}/reject`, {
       rejectionReason
     });
+    return response.data;
+  },
+
+  markGatePassEntered: async (gatePassId: string): Promise<ApiResponse<GatePass>> => {
+    const response: AxiosResponse<ApiResponse<GatePass>> = await api.patch(`/gatepasses/${gatePassId}/mark-entered`);
+    return response.data;
+  },
+
+  markGatePassExited: async (gatePassId: string): Promise<ApiResponse<GatePass>> => {
+    const response: AxiosResponse<ApiResponse<GatePass>> = await api.patch(`/gatepasses/${gatePassId}/mark-exited`);
     return response.data;
   },
 
@@ -391,6 +403,10 @@ export const millAPI = {
     breakdownSummary?: string;
     productionHours?: number;
     efficiency?: number;
+    electricityReadings?: {
+      startReading: number;
+      endReading: number;
+    };
     remarks?: string;
   }): Promise<ApiResponse<MillDailySummary>> => {
     const response: AxiosResponse<ApiResponse<MillDailySummary>> = await api.post('/mill/daily', data);
@@ -419,6 +435,19 @@ export const millAPI = {
     remarks: string;
   }>): Promise<ApiResponse<MillDailySummary>> => {
     const response: AxiosResponse<ApiResponse<MillDailySummary>> = await api.put(`/mill/daily/${summaryId}`, data);
+    return response.data;
+  },
+
+  updateDailyElectricity: async (summaryId: string, data: {
+    startReading: number;
+    endReading: number;
+  }): Promise<ApiResponse<MillDailySummary>> => {
+    const response: AxiosResponse<ApiResponse<MillDailySummary>> = await api.patch(`/mill/daily/${summaryId}/electricity`, data);
+    return response.data;
+  },
+
+  submitDailySummary: async (summaryId: string): Promise<ApiResponse<MillDailySummary>> => {
+    const response: AxiosResponse<ApiResponse<MillDailySummary>> = await api.patch(`/mill/daily/${summaryId}/submit`);
     return response.data;
   },
 
@@ -490,23 +519,68 @@ export const storeAPI = {
     returnDate?: string;
     remarks?: string;
   }): Promise<ApiResponse<StoreIssuance>> => {
-    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.post('/store/issue', data);
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.post('/store/requests', data);
+    return response.data;
+  },
+
+  approveStoreRequest: async (issuanceId: string, data: {
+    approvedQuantity: number;
+    remarks?: string;
+  }): Promise<ApiResponse<StoreIssuance>> => {
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/approve`, data);
+    return response.data;
+  },
+
+  rejectStoreRequest: async (issuanceId: string, data: {
+    reason: string;
+    remarks?: string;
+  }): Promise<ApiResponse<StoreIssuance>> => {
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/reject`, data);
+    return response.data;
+  },
+
+  markStoreIssued: async (issuanceId: string, data?: {
+    remarks?: string;
+  }): Promise<ApiResponse<StoreIssuance>> => {
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/issue`, data || {});
     return response.data;
   },
 
   returnStoreItem: async (issuanceId: string, data: {
-    returnedQuantity: number;
+    quantity?: number;
     remarks?: string;
   }): Promise<ApiResponse<StoreIssuance>> => {
-    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/return/${issuanceId}`, data);
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/return`, data);
+    return response.data;
+  },
+
+  markStoreUnderRepair: async (issuanceId: string, data?: {
+    remarks?: string;
+  }): Promise<ApiResponse<StoreIssuance>> => {
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/under-repair`, data || {});
+    return response.data;
+  },
+
+  markStoreRepaired: async (issuanceId: string, data?: {
+    quantity?: number;
+    remarks?: string;
+  }): Promise<ApiResponse<StoreIssuance>> => {
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/repair`, data || {});
+    return response.data;
+  },
+
+  markStoreScrapped: async (issuanceId: string, data?: {
+    remarks?: string;
+  }): Promise<ApiResponse<StoreIssuance>> => {
+    const response: AxiosResponse<ApiResponse<StoreIssuance>> = await api.patch(`/store/requests/${issuanceId}/scrap`, data || {});
     return response.data;
   },
 
   getStoreIssuances: async (params?: {
     issuedTo?: string;
     department?: string;
+    status?: string;
     returnExpected?: boolean;
-    returned?: boolean;
     startDate?: string;
     endDate?: string;
     page?: number;
@@ -541,6 +615,17 @@ export const uploadAPI = {
         'Content-Type': 'multipart/form-data',
       },
     });
+    return response.data;
+  },
+};
+
+// Reports API
+export const reportsAPI = {
+  getAnalytics: async (params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<any>> => {
+    const response: AxiosResponse<ApiResponse<any>> = await api.get('/reports/analytics', { params });
     return response.data;
   },
 };

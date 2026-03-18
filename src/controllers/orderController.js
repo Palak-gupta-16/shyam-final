@@ -18,6 +18,7 @@ const createOrder = async (req, res) => {
     const processedProducts = [];
     let isOrderBlocked = false;
     const blockedReasons = [];
+    const provisionalReservations = [];
 
     for (const product of products) {
       // Require inventoryItemId for all orders
@@ -58,28 +59,13 @@ const createOrder = async (req, res) => {
       if (type === "dispatch") {
         // Check stock availability for dispatch orders
         if (inventoryItem.availableQuantity < product.quantity) {
-          // Insufficient stock - partially fulfill or block
-          if (inventoryItem.availableQuantity > 0) {
-            // Partial fulfillment
-            processedProduct.quantityFulfilled =
-              inventoryItem.availableQuantity;
-            processedProduct.quantityPending =
-              product.quantity - inventoryItem.availableQuantity;
-
-            // Reserve available quantity
-            inventoryItem.reserveQuantity(inventoryItem.availableQuantity);
-            inventoryItem.lastUpdatedBy = req.user._id;
-            await inventoryItem.save();
-
-            isOrderBlocked = true;
-            blockedReasons.push(
-              `${product.name} - Partial stock (${inventoryItem.availableQuantity}/${product.quantity})`
-            );
-          } else {
-            // No stock available - full block
-            isOrderBlocked = true;
-            blockedReasons.push(`${product.name} - Out of stock`);
-          }
+          // Insufficient stock - full block with no reservation
+          processedProduct.quantityFulfilled = 0;
+          processedProduct.quantityPending = product.quantity;
+          isOrderBlocked = true;
+          blockedReasons.push(
+            `${product.name} - Insufficient stock (${inventoryItem.availableQuantity}/${product.quantity})`
+          );
         } else {
           // Sufficient stock available
           processedProduct.quantityFulfilled = product.quantity;
@@ -89,6 +75,10 @@ const createOrder = async (req, res) => {
           inventoryItem.reserveQuantity(product.quantity);
           inventoryItem.lastUpdatedBy = req.user._id;
           await inventoryItem.save();
+          provisionalReservations.push({
+            inventoryItemId: inventoryItem._id,
+            quantity: product.quantity,
+          });
         }
       } else if (type === "purchase") {
         // For purchase orders, we're adding inventory
@@ -97,6 +87,23 @@ const createOrder = async (req, res) => {
       }
 
       processedProducts.push(processedProduct);
+    }
+
+    // If order is blocked, release all provisional reservations so blocked orders have no allocatable actions.
+    if (isOrderBlocked && type === "dispatch" && provisionalReservations.length) {
+      for (const reservation of provisionalReservations) {
+        const inventoryItem = await Inventory.findById(reservation.inventoryItemId);
+        if (inventoryItem) {
+          inventoryItem.releaseReservedQuantity(reservation.quantity);
+          inventoryItem.lastUpdatedBy = req.user._id;
+          await inventoryItem.save();
+        }
+      }
+
+      processedProducts.forEach((product) => {
+        product.quantityFulfilled = 0;
+        product.quantityPending = product.quantity;
+      });
     }
 
     // Create order WITHOUT vehicle details
@@ -542,7 +549,7 @@ const updateOrderStatus = async (req, res) => {
     }
 
     // Check if transition is valid
-    if (!canTransition(order.status, status)) {
+    if (!canTransition(order.type, order.status, status)) {
       return res.status(400).json({
         message: `Invalid status transition from ${order.status} to ${status}`,
       });
@@ -624,6 +631,8 @@ const recordEmptyWeight = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
+    const previousStatus = order.status;
+
     // Update weights
     order.weights = {
       ...order.weights,
@@ -640,7 +649,7 @@ const recordEmptyWeight = async (req, res) => {
     order.status = newStatus;
     order.history.push({
       by: req.user._id,
-      from: order.status,
+      from: previousStatus,
       to: newStatus,
       note: `Empty weight recorded: ${emptyWeight}kg`,
       at: new Date(),
@@ -1228,10 +1237,13 @@ const generateInvoice = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    const expectedStatus =
-      order.type === "dispatch"
-        ? "ready_for_billing"
-        : "ready_for_billing_purchase";
+    if (order.type !== "dispatch") {
+      return res
+        .status(400)
+        .json({ message: "Invoice can only be generated for dispatch orders" });
+    }
+
+    const expectedStatus = "ready_for_billing";
 
     if (order.status !== expectedStatus) {
       return res
@@ -1245,42 +1257,64 @@ const generateInvoice = async (req, res) => {
         .json({ message: "Invoice has already been generated for this order" });
     }
 
-    // Generate bill number
-    const billNumber = Math.floor(Math.random() * 1000000);
+    if (!order.invoice?.fare || !order.invoice.fare.amount || order.invoice.fare.amount <= 0) {
+      return res
+        .status(400)
+        .json({ message: "Fare details are mandatory before invoice generation" });
+    }
 
-    // Update invoice
-    const invoicePayload = {
-      billNumber,
-      amount,
-    };
+    // Generate deterministic bill number sequence
+    const billNumber = await getNextSequence("bills");
+
+    if (typeof amount !== "number" || Number.isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Invoice amount must be a valid number greater than 0" });
+    }
+
+    // Update invoice in place to avoid replacing nested invoice.fare with undefined
+    if (!order.invoice) {
+      order.invoice = {};
+    }
+
+    const currentFare = order.invoice?.fare
+      ? {
+          amount: order.invoice.fare.amount,
+          paidBy: order.invoice.fare.paidBy,
+          paymentStatus: order.invoice.fare.paymentStatus,
+          notes: order.invoice.fare.notes,
+        }
+      : null;
+
+    order.invoice.billNumber = billNumber;
+    order.invoice.amount = amount;
 
     if (typeof RatePerUnit === "number" && !Number.isNaN(RatePerUnit)) {
-      invoicePayload.RatePerUnit = RatePerUnit;
+      order.invoice.RatePerUnit = RatePerUnit;
     }
 
     if (typeof TaxPercentage === "number" && !Number.isNaN(TaxPercentage)) {
-      invoicePayload.TaxPercentage = TaxPercentage;
+      order.invoice.TaxPercentage = TaxPercentage;
     }
 
     const trimmedInvoiceNotes =
       typeof invoiceNotes === "string" ? invoiceNotes.trim() : "";
     if (trimmedInvoiceNotes) {
-      invoicePayload.invoiceNotes = trimmedInvoiceNotes;
+      order.invoice.invoiceNotes = trimmedInvoiceNotes;
     }
 
     const trimmedPdfUrl =
       typeof pdfUrl === "string" ? pdfUrl.trim() : "";
     if (trimmedPdfUrl) {
-      invoicePayload.pdfUrl = trimmedPdfUrl;
+      order.invoice.pdfUrl = trimmedPdfUrl;
     }
 
-    order.invoice = invoicePayload;
+    order.invoice.generatedAt = new Date();
+
+    if (currentFare) {
+      order.invoice.fare = currentFare;
+    }
 
     // Update status
-    const newStatus =
-      order.type === "dispatch"
-        ? "ready_for_dispatch"
-        : "ready_for_exit_purchase";
+    const newStatus = "ready_for_dispatch";
     const previousStatus = order.status;
     order.status = newStatus;
     order.history.push({
@@ -1331,6 +1365,12 @@ const exitOrder = async (req, res) => {
         .json({
           message: "Invoice must be generated before marking dispatch exit",
         });
+    }
+
+    if (!order.invoice?.fare || !order.invoice.fare.amount || order.invoice.fare.amount <= 0) {
+      return res
+        .status(400)
+        .json({ message: "Fare details are mandatory before marking exit" });
     }
 
     // Update status to completed
@@ -1419,7 +1459,7 @@ const addVehicleDetails = async (req, res) => {
 const updateFareDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fareAmount, paidBy, fareNotes } = req.body;
+    const { fareAmount, paidBy, paymentStatus, fareNotes } = req.body;
 
     const order = await Order.findById(id);
     if (!order) {
@@ -1438,6 +1478,14 @@ const updateFareDetails = async (req, res) => {
         });
     }
 
+    if (!paymentStatus || !["paid", "unpaid"].includes(paymentStatus)) {
+      return res
+        .status(400)
+        .json({
+          message: 'Fare paymentStatus must be either "paid" or "unpaid"',
+        });
+    }
+
     // Initialize invoice if it doesn't exist
     if (!order.invoice) {
       order.invoice = {};
@@ -1447,6 +1495,7 @@ const updateFareDetails = async (req, res) => {
     order.invoice.fare = {
       amount: fareAmount,
       paidBy: paidBy,
+      paymentStatus,
       notes: fareNotes || "",
     };
 

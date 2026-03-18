@@ -43,7 +43,7 @@ const OrderCard: React.FC<OrderCardProps> = ({
     const canRecordWeight = hasRole(['Weighbridge','General_Manager', 'Director']);
     const canManageLoading = hasRole(['Loading','General_Manager', 'Director']);
     const canManageUnloading = hasRole(['Unloading','General_Manager', 'Director']);
-    const canGenerateInvoice = hasRole(['Accounting', 'Director']);
+    const canManageBilling = hasRole(['Accounting', 'Director']);
     const canSignalReady =
       hasRole(['Weighbridge', 'General_Manager', 'Director']) ||
       (orderType === 'dispatch' && hasRole(['Loading'])) ||
@@ -96,11 +96,23 @@ const OrderCard: React.FC<OrderCardProps> = ({
         }
         break;
       case 'ready_for_billing':
-      case 'ready_for_billing_purchase':
-        if (canGenerateInvoice) {
+      case 'ready_for_billing_purchase': {
+        if (!canManageBilling) {
+          break;
+        }
+
+        const hasFare = Boolean(order.invoice?.fare?.amount && order.invoice?.fare?.paidBy);
+        actions.push({
+          label: hasFare ? 'Update Fare' : 'Add Fare',
+          action: 'add-fare',
+          variant: hasFare ? 'secondary' : 'primary'
+        });
+
+        if (orderType === 'dispatch' && hasFare) {
           actions.push({ label: 'Generate Invoice', action: 'generate-invoice', variant: 'primary' });
         }
         break;
+      }
       case 'ready_for_dispatch':
       case 'ready_for_exit_purchase':
         if (canApproveEntry) {

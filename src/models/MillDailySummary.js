@@ -87,6 +87,38 @@ const millDailySummarySchema = new mongoose.Schema({
     min: 0,
     max: 100
   },
+  electricity: {
+    startReading: {
+      type: Number,
+      min: 0
+    },
+    endReading: {
+      type: Number,
+      min: 0
+    },
+    consumption: {
+      type: Number,
+      min: 0
+    },
+    capturedAt: {
+      type: Date
+    },
+    capturedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
+  },
+  isSubmitted: {
+    type: Boolean,
+    default: false
+  },
+  submittedAt: {
+    type: Date
+  },
+  submittedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   remarks: {
     type: String,
     trim: true

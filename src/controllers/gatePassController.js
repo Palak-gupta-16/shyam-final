@@ -1,25 +1,55 @@
-const { GatePass } = require('../models');
+const { GatePass, User } = require('../models');
+const { sendGatePassApprovalEmail } = require('../utils/mailer');
 
 // Create gate pass request
 const createGatePass = async (req, res) => {
   try {
-    const { vehicle, purpose } = req.body;
+    const { vehicle, purpose, relatedOrderId } = req.body;
+
+    if (!vehicle || !vehicle.number || !vehicle.driverName || !vehicle.driverContact) {
+      return res.status(400).json({
+        message: 'Vehicle number, driver name, and driver contact are required'
+      });
+    }
+
+    if (!purpose || purpose.trim() === '') {
+      return res.status(400).json({ message: 'Purpose is required' });
+    }
 
     const gatePass = new GatePass({
       requestBy: req.user._id,
-      vehicle,
+      vehicle: {
+        number: vehicle.number,
+        driverName: vehicle.driverName,
+        driverContact: vehicle.driverContact,
+      },
       purpose,
-      status: 'pending'
+      relatedOrderId: relatedOrderId || undefined,
+      status: 'pending_approval'
     });
 
     await gatePass.save();
+
+    const approvers = await User.find({ role: { $in: ['General_Manager', 'Director'] } })
+      .select('email')
+      .lean();
+
+    const recipients = approvers.map((u) => u.email).filter(Boolean);
+    let emailInfo = { sent: false };
+
+    try {
+      emailInfo = await sendGatePassApprovalEmail({ recipients, gatePass });
+    } catch (emailError) {
+      console.error('Gate pass email notification failed:', emailError);
+    }
 
     // Populate the requestBy field for response
     await gatePass.populate('requestBy', 'name alias role');
 
     res.status(201).json({
       message: 'Gate pass requested',
-      gp: gatePass
+      gp: gatePass,
+      notification: emailInfo
     });
 
   } catch (error) {
@@ -47,7 +77,7 @@ const approveGatePass = async (req, res) => {
       return res.status(404).json({ message: 'Gate pass not found' });
     }
 
-    if (gatePass.status !== 'pending') {
+    if (!['pending', 'pending_approval'].includes(gatePass.status)) {
       return res.status(400).json({ 
         message: `Cannot approve gate pass with status: ${gatePass.status}` 
       });
@@ -88,7 +118,7 @@ const rejectGatePass = async (req, res) => {
       return res.status(404).json({ message: 'Gate pass not found' });
     }
 
-    if (gatePass.status !== 'pending') {
+    if (!['pending', 'pending_approval'].includes(gatePass.status)) {
       return res.status(400).json({ 
         message: `Cannot reject gate pass with status: ${gatePass.status}` 
       });
@@ -185,10 +215,84 @@ const getGatePassById = async (req, res) => {
   }
 };
 
+// Mark approved gate pass as entered into factory
+const markGatePassEntered = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const gatePass = await GatePass.findById(id);
+    if (!gatePass) {
+      return res.status(404).json({ message: 'Gate pass not found' });
+    }
+
+    if (gatePass.status !== 'approved') {
+      return res.status(400).json({
+        message: `Gate pass must be approved before entry. Current status: ${gatePass.status}`,
+      });
+    }
+
+    gatePass.status = 'inside_factory';
+    gatePass.entryTime = new Date();
+    await gatePass.save();
+
+    await gatePass.populate([
+      { path: 'requestBy', select: 'name alias role' },
+      { path: 'approvedBy', select: 'name alias role' },
+    ]);
+
+    res.status(200).json({
+      message: 'Gate pass marked as entered',
+      gp: gatePass,
+    });
+  } catch (error) {
+    console.error('Mark gate pass entered error:', error);
+    res.status(500).json({ message: 'Server error marking gate pass as entered' });
+  }
+};
+
+// Mark gate pass as exited from factory
+const markGatePassExited = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const gatePass = await GatePass.findById(id);
+    if (!gatePass) {
+      return res.status(404).json({ message: 'Gate pass not found' });
+    }
+
+    if (!['approved', 'inside_factory'].includes(gatePass.status)) {
+      return res.status(400).json({
+        message: `Cannot mark exit for gate pass status: ${gatePass.status}`,
+      });
+    }
+
+    gatePass.status = 'exited';
+    gatePass.exitTime = new Date();
+    if (!gatePass.entryTime) {
+      gatePass.entryTime = gatePass.approvedAt || new Date();
+    }
+
+    await gatePass.save();
+
+    await gatePass.populate([
+      { path: 'requestBy', select: 'name alias role' },
+      { path: 'approvedBy', select: 'name alias role' },
+    ]);
+
+    res.status(200).json({
+      message: 'Gate pass marked as exited',
+      gp: gatePass,
+    });
+  } catch (error) {
+    console.error('Mark gate pass exited error:', error);
+    res.status(500).json({ message: 'Server error marking gate pass as exited' });
+  }
+};
+
 // Get pending gate passes
 const getPendingGatePasses = async (req, res) => {
   try {
-    const pendingGatePasses = await GatePass.find({ status: 'pending' })
+    const pendingGatePasses = await GatePass.find({ status: { $in: ['pending', 'pending_approval'] } })
       .sort({ createdAt: 1 }) // Oldest first for processing
       .populate('requestBy', 'name alias role')
       .lean();
@@ -209,6 +313,8 @@ module.exports = {
   createGatePass,
   approveGatePass,
   rejectGatePass,
+  markGatePassEntered,
+  markGatePassExited,
   getGatePasses,
   getGatePassById,
   getPendingGatePasses

@@ -7,6 +7,8 @@ const {
   finalWeightSchema, 
   loadingCompleteSchema, 
   generateInvoiceSchema,
+  addVehicleDetailsSchema,
+  updateFareDetailsSchema,
   orderQuerySchema 
 } = require('../validators');
 
@@ -33,6 +35,7 @@ router.patch('/:id/guard-approve',
 // Add vehicle details (NEW - after order creation)
 router.patch('/:id/vehicle-details',
   authorize('Store_Keeper', 'Purchasing', 'General_Manager', 'Director', 'Guard'),
+  validate(addVehicleDetailsSchema),
   logActivity('ORDER_ADD_VEHICLE', 'Order'),
   orderController.addVehicleDetails
 );
@@ -40,6 +43,7 @@ router.patch('/:id/vehicle-details',
 // Update fare details (NEW - in billing phase)
 router.patch('/:id/fare-details',
   authorize('Accounting', 'Director'),
+  validate(updateFareDetailsSchema),
   logActivity('ORDER_UPDATE_FARE', 'Order'),
   orderController.updateFareDetails
 );
@@ -125,13 +129,13 @@ router.patch('/:id/exit',
 
 // Get orders with filters and pagination
 router.get('/',
-  authorize('General_Manager', 'Director', 'Store_Keeper', 'Purchasing'),
+  authorize('General_Manager', 'Director', 'Store_Keeper', 'Purchasing', 'Accounting'),
   validate(orderQuerySchema, 'query'),
   orderController.getOrders
 );
 
 router.get('/by-status',
-  authorize('General_Manager', 'Director', 'Store_Keeper', 'Purchasing','Guard'),
+  authorize('General_Manager', 'Director', 'Store_Keeper', 'Purchasing', 'Guard', 'Accounting'),
   orderController.getOrdersByStatus
 );
 

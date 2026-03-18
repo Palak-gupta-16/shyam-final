@@ -72,12 +72,37 @@ const GatePasses: React.FC = () => {
     }
   };
 
+  const handleMarkEntered = async (gatePassId: string) => {
+    try {
+      await gatePassAPI.markGatePassEntered(gatePassId);
+      fetchGatePasses();
+    } catch (error) {
+      console.error('Error marking gate pass entered:', error);
+    }
+  };
+
+  const handleMarkExited = async (gatePassId: string) => {
+    try {
+      await gatePassAPI.markGatePassExited(gatePassId);
+      fetchGatePasses();
+    } catch (error) {
+      console.error('Error marking gate pass exited:', error);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'inside_factory':
+        return <Badge variant="info" size="sm" dot>Inside Factory</Badge>;
+      case 'exited':
+        return <Badge variant="secondary" size="sm" dot>Exited</Badge>;
       case 'approved':
         return <Badge variant="success" size="sm" dot>Approved</Badge>;
       case 'rejected':
         return <Badge variant="error" size="sm" dot>Rejected</Badge>;
+      case 'pending_approval':
+      case 'pending':
+        return <Badge variant="warning" size="sm" dot>Pending Approval</Badge>;
       default:
         return <Badge variant="warning" size="sm" dot>Pending</Badge>;
     }
@@ -93,19 +118,19 @@ const GatePasses: React.FC = () => {
       },
       {
         title: 'Pending',
-        value: gatePasses.filter(gp => gp.status === 'pending').length,
+        value: gatePasses.filter(gp => gp.status === 'pending' || gp.status === 'pending_approval').length,
         icon: Clock,
         color: 'warning' as const,
       },
       {
-        title: 'Approved',
-        value: gatePasses.filter(gp => gp.status === 'approved').length,
+        title: 'Inside Factory',
+        value: gatePasses.filter(gp => gp.status === 'inside_factory').length,
         icon: CheckCircle,
         color: 'success' as const,
       },
       {
-        title: 'Rejected',
-        value: gatePasses.filter(gp => gp.status === 'rejected').length,
+        title: 'Exited',
+        value: gatePasses.filter(gp => gp.status === 'exited').length,
         icon: XCircle,
         color: 'error' as const,
       },
@@ -115,6 +140,7 @@ const GatePasses: React.FC = () => {
   const filteredGatePasses = gatePasses.filter(gp =>
     gp.vehicle.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
     gp.vehicle.driverName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    gp.vehicle.driverContact.toLowerCase().includes(searchTerm.toLowerCase()) ||
     gp.purpose.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -136,7 +162,8 @@ const GatePasses: React.FC = () => {
           </div>
           <div>
             <div className="font-medium text-gray-900">{record.vehicle.number}</div>
-            <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+              <div className="text-sm text-gray-500">{record.vehicle.driverName}</div>
+              <div className="text-xs text-gray-400">{record.vehicle.driverContact}</div>
           </div>
         </div>
       ),
@@ -182,7 +209,7 @@ const GatePasses: React.FC = () => {
       title: 'Actions',
       render: (_: any, record: GatePass) => (
         <div className="flex items-center space-x-2">
-          {hasRole([ 'General_Manager', 'Director']) &&  record.status === 'pending' && (
+          {hasRole(['General_Manager', 'Director']) && (record.status === 'pending' || record.status === 'pending_approval') && (
             <>
               <Button
                 variant="success"
@@ -201,6 +228,26 @@ const GatePasses: React.FC = () => {
                 Reject
               </Button>
             </>
+          )}
+          {hasRole(['Guard', 'General_Manager', 'Director']) && record.status === 'approved' && (
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Truck}
+              onClick={() => handleMarkEntered(record._id)}
+            >
+              Mark Entered
+            </Button>
+          )}
+          {hasRole(['Guard', 'General_Manager', 'Director']) && record.status === 'inside_factory' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Truck}
+              onClick={() => handleMarkExited(record._id)}
+            >
+              Mark Exited
+            </Button>
           )}
           <Button
             variant="ghost"
@@ -272,8 +319,10 @@ const GatePasses: React.FC = () => {
                   className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="all">All Status</option>
-                  <option value="pending">Pending</option>
+                  <option value="pending_approval">Pending Approval</option>
                   <option value="approved">Approved</option>
+                  <option value="inside_factory">Inside Factory</option>
+                  <option value="exited">Exited</option>
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
@@ -324,7 +373,9 @@ const CreateGatePassModal: React.FC<{
   const [formData, setFormData] = useState({
     vehicleNumber: '',
     driverName: '',
+    driverContact: '',
     purpose: '',
+    relatedOrderId: '',
   });
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -340,11 +391,13 @@ const CreateGatePassModal: React.FC<{
         vehicle: {
           number: formData.vehicleNumber,
           driverName: formData.driverName,
+          driverContact: formData.driverContact,
         },
         purpose: formData.purpose,
+        relatedOrderId: formData.relatedOrderId || undefined,
       });
       onSuccess();
-      setFormData({ vehicleNumber: '', driverName: '', purpose: '' });
+      setFormData({ vehicleNumber: '', driverName: '', driverContact: '', purpose: '', relatedOrderId: '' });
     } catch (error: any) {
       console.error('Error creating gate pass:', error);
       const { message, fieldErrors } = extractApiError(error);
@@ -385,6 +438,22 @@ const CreateGatePassModal: React.FC<{
           placeholder="Enter driver name"
           required
           icon={User}
+        />
+
+        <Input
+          label="Driver Contact"
+          value={formData.driverContact}
+          onChange={(e) => setFormData(prev => ({ ...prev, driverContact: e.target.value }))}
+          placeholder="10-digit mobile number"
+          required
+          icon={User}
+        />
+
+        <Input
+          label="Related Order ID (Optional)"
+          value={formData.relatedOrderId}
+          onChange={(e) => setFormData(prev => ({ ...prev, relatedOrderId: e.target.value }))}
+          placeholder="Order ID if linked to dispatch/purchase"
         />
 
         <div>
@@ -462,6 +531,7 @@ const GatePassDetailsModal: React.FC<{
                 <div>
                   <p className="font-medium text-gray-900">{gatePass.vehicle.number}</p>
                   <p className="text-sm text-gray-600">Driver: {gatePass.vehicle.driverName}</p>
+                  <p className="text-sm text-gray-600">Contact: {gatePass.vehicle.driverContact}</p>
                 </div>
               </div>
             </div>
@@ -486,6 +556,18 @@ const GatePassDetailsModal: React.FC<{
                     {new Date(gatePass.createdAt).toLocaleString()}
                   </span>
                 </div>
+                {gatePass.entryTime && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Entry Time:</span>
+                    <span className="text-sm font-medium">{new Date(gatePass.entryTime).toLocaleString()}</span>
+                  </div>
+                )}
+                {gatePass.exitTime && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Exit Time:</span>
+                    <span className="text-sm font-medium">{new Date(gatePass.exitTime).toLocaleString()}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -532,10 +614,17 @@ const GatePassDetailsModal: React.FC<{
 // Helper function for status badge (same as in component)
 const getStatusBadge = (status: string) => {
   switch (status) {
+    case 'inside_factory':
+      return <Badge variant="info" size="sm" dot>Inside Factory</Badge>;
+    case 'exited':
+      return <Badge variant="secondary" size="sm" dot>Exited</Badge>;
     case 'approved':
       return <Badge variant="success" size="sm" dot>Approved</Badge>;
     case 'rejected':
       return <Badge variant="error" size="sm" dot>Rejected</Badge>;
+    case 'pending_approval':
+    case 'pending':
+      return <Badge variant="warning" size="sm" dot>Pending Approval</Badge>;
     default:
       return <Badge variant="warning" size="sm" dot>Pending</Badge>;
   }

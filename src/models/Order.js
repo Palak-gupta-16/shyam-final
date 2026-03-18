@@ -1,4 +1,3 @@
-const { required } = require('joi');
 const mongoose = require('mongoose');
 
 const orderSchema = new mongoose.Schema({
@@ -206,6 +205,11 @@ const orderSchema = new mongoose.Schema({
         enum: ['our_side', 'other_party'],
         trim: true
       },
+      paymentStatus: {
+        type: String,
+        enum: ['paid', 'unpaid'],
+        trim: true
+      },
       notes: {
         type: String,
         trim: true
@@ -214,6 +218,9 @@ const orderSchema = new mongoose.Schema({
     invoiceNotes: {
       type: String,
       trim: true
+    },
+    generatedAt: {
+      type: Date
     }
   },
   createdBy: {

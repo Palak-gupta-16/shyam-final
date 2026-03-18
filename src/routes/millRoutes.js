@@ -54,6 +54,20 @@ router.put('/daily/:id',
   millController.editDailySummary
 );
 
+// Capture electricity reading once per day
+router.patch('/daily/:id/electricity',
+  authorize('Mill_Supervisor', 'General_Manager', 'Director'),
+  logActivity('MILL_DAILY_ELECTRICITY_CAPTURE', 'MillDailySummary'),
+  millController.updateDailyElectricity
+);
+
+// Submit daily summary and lock edits
+router.patch('/daily/:id/submit',
+  authorize('Mill_Supervisor', 'General_Manager', 'Director'),
+  logActivity('MILL_DAILY_SUBMIT', 'MillDailySummary'),
+  millController.submitDailySummary
+);
+
 // Get available raw materials for mill production
 router.get('/raw-materials',
   authorize('Mill_Supervisor', 'General_Manager', 'Director'),

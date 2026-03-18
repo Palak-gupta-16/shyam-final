@@ -1,31 +1,45 @@
 const { StoreIssuance, Inventory } = require('../models');
 
-// Issue store item
+const appendHistory = (issuance, userId, action, fromStatus, toStatus, note) => {
+  issuance.history.push({
+    by: userId,
+    action,
+    fromStatus,
+    toStatus,
+    note,
+    at: new Date(),
+  });
+};
+
+const getStoreInventoryItem = async (name) => {
+  return Inventory.findOne({
+    name,
+    type: 'store_item',
+  });
+};
+
+const populateIssuance = async (issuance) => {
+  await issuance.populate('issuedBy', 'name alias role');
+  await issuance.populate('approvedBy', 'name alias role');
+  await issuance.populate('rejectedBy', 'name alias role');
+  await issuance.populate('history.by', 'name alias role');
+  return issuance;
+};
+
+// Raise store request
 const issueStoreItem = async (req, res) => {
   try {
-    const { issuedTo, item, purpose, department, employeeId, returnExpected, returnDate, remarks } = req.body;
+    const {
+      issuedTo,
+      item,
+      purpose,
+      department,
+      employeeId,
+      returnExpected,
+      returnDate,
+      remarks,
+    } = req.body;
 
-    // Check if item exists in store inventory
-    const inventoryItem = await Inventory.findOne({ 
-      name: item.name,
-      type: 'store_item'
-    });
-
-    if (inventoryItem) {
-      // Check if sufficient quantity is available
-      if (inventoryItem.quantity < item.quantity) {
-        return res.status(400).json({ 
-          message: `Insufficient stock. Available: ${inventoryItem.quantity}, Requested: ${item.quantity}` 
-        });
-      }
-
-      // Reduce inventory quantity
-      inventoryItem.quantity -= item.quantity;
-      inventoryItem.lastUpdatedBy = req.user._id;
-      await inventoryItem.save();
-    }
-
-    // Create store issuance record
     const issuance = new StoreIssuance({
       issuedBy: req.user._id,
       issuedTo,
@@ -33,145 +47,442 @@ const issueStoreItem = async (req, res) => {
       purpose,
       department,
       employeeId,
-      returnExpected: returnExpected || false,
+      returnExpected: Boolean(returnExpected),
       returnDate: returnExpected ? returnDate : null,
-      remarks
+      status: 'raised',
+      remarks,
+      history: [],
     });
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'request_raised',
+      null,
+      'raised',
+      remarks || 'Store request raised'
+    );
 
     await issuance.save();
-
-    // Populate the issuedBy field for response
-    await issuance.populate('issuedBy', 'name alias role');
+    await populateIssuance(issuance);
 
     res.status(201).json({
-      message: 'Item issued',
-      record: issuance
+      message: 'Store request raised',
+      record: issuance,
     });
-
   } catch (error) {
-    console.error('Issue store item error:', error);
-    
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: validationErrors 
-      });
-    }
-    
-    res.status(500).json({ message: 'Server error issuing store item' });
+    console.error('Raise store request error:', error);
+    res.status(500).json({ message: 'Server error raising store request' });
   }
 };
 
-// Return store item
-const returnStoreItem = async (req, res) => {
+// Approve raised request
+const approveStoreIssuance = async (req, res) => {
   try {
     const { id } = req.params;
-    const { returnedQuantity, remarks } = req.body;
+    const { approvedQuantity, remarks } = req.body;
 
     const issuance = await StoreIssuance.findById(id);
     if (!issuance) {
       return res.status(404).json({ message: 'Store issuance record not found' });
     }
 
-    if (!issuance.returnExpected) {
-      return res.status(400).json({ message: 'This item was not expected to be returned' });
+    if (issuance.status !== 'raised') {
+      return res.status(400).json({ message: `Only raised requests can be approved. Current status: ${issuance.status}` });
     }
 
-    if (issuance.returned) {
-      return res.status(400).json({ message: 'Item has already been returned' });
-    }
-
-    if (returnedQuantity > issuance.item.quantity) {
-      return res.status(400).json({ 
-        message: `Cannot return more than issued. Issued: ${issuance.item.quantity}, Returning: ${returnedQuantity}` 
+    if (approvedQuantity > issuance.item.quantity) {
+      return res.status(400).json({
+        message: `Approved quantity cannot exceed requested quantity (${issuance.item.quantity})`,
       });
     }
 
-    // Update issuance record
-    issuance.returned = true;
-    issuance.returnedQuantity = returnedQuantity;
+    const inventoryItem = await getStoreInventoryItem(issuance.item.name);
+    if (!inventoryItem || inventoryItem.quantity < approvedQuantity) {
+      return res.status(400).json({
+        message: `Insufficient stock for approval. Available: ${inventoryItem ? inventoryItem.quantity : 0}, Required: ${approvedQuantity}`,
+      });
+    }
+
+    const previousStatus = issuance.status;
+    issuance.status = 'approved';
+    issuance.approvedBy = req.user._id;
+    issuance.approvedAt = new Date();
+    issuance.approvedQuantity = approvedQuantity;
     issuance.remarks = remarks || issuance.remarks;
 
+    appendHistory(
+      issuance,
+      req.user._id,
+      'request_approved',
+      previousStatus,
+      'approved',
+      remarks || `Approved quantity: ${approvedQuantity}`
+    );
+
     await issuance.save();
+    await populateIssuance(issuance);
 
-    // Update inventory if item exists
-    const inventoryItem = await Inventory.findOne({ 
-      name: issuance.item.name,
-      type: 'store_item'
+    res.status(200).json({
+      message: 'Store request approved',
+      record: issuance,
     });
+  } catch (error) {
+    console.error('Approve store request error:', error);
+    res.status(500).json({ message: 'Server error approving store request' });
+  }
+};
 
+// Reject raised request
+const rejectStoreIssuance = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason, remarks } = req.body;
+
+    const issuance = await StoreIssuance.findById(id);
+    if (!issuance) {
+      return res.status(404).json({ message: 'Store issuance record not found' });
+    }
+
+    if (issuance.status !== 'raised') {
+      return res.status(400).json({ message: `Only raised requests can be rejected. Current status: ${issuance.status}` });
+    }
+
+    const previousStatus = issuance.status;
+    issuance.status = 'rejected';
+    issuance.rejectedBy = req.user._id;
+    issuance.rejectedAt = new Date();
+    issuance.rejectionReason = reason;
+    issuance.remarks = remarks || issuance.remarks;
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'request_rejected',
+      previousStatus,
+      'rejected',
+      reason
+    );
+
+    await issuance.save();
+    await populateIssuance(issuance);
+
+    res.status(200).json({
+      message: 'Store request rejected',
+      record: issuance,
+    });
+  } catch (error) {
+    console.error('Reject store request error:', error);
+    res.status(500).json({ message: 'Server error rejecting store request' });
+  }
+};
+
+// Issue approved request (deduct inventory)
+const issueApprovedStoreItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remarks } = req.body;
+
+    const issuance = await StoreIssuance.findById(id);
+    if (!issuance) {
+      return res.status(404).json({ message: 'Store issuance record not found' });
+    }
+
+    if (issuance.status !== 'approved') {
+      return res.status(400).json({ message: `Only approved requests can be issued. Current status: ${issuance.status}` });
+    }
+
+    const quantityToIssue = issuance.approvedQuantity || issuance.item.quantity;
+
+    const inventoryItem = await getStoreInventoryItem(issuance.item.name);
+    if (!inventoryItem || inventoryItem.quantity < quantityToIssue) {
+      return res.status(400).json({
+        message: `Insufficient stock at issue time. Available: ${inventoryItem ? inventoryItem.quantity : 0}, Required: ${quantityToIssue}`,
+      });
+    }
+
+    inventoryItem.quantity -= quantityToIssue;
+    inventoryItem.lastUpdatedBy = req.user._id;
+    await inventoryItem.save();
+
+    const previousStatus = issuance.status;
+    issuance.status = 'issued';
+    issuance.issuedAt = new Date();
+    issuance.remarks = remarks || issuance.remarks;
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'item_issued',
+      previousStatus,
+      'issued',
+      remarks || `Issued quantity: ${quantityToIssue}`
+    );
+
+    await issuance.save();
+    await populateIssuance(issuance);
+
+    res.status(200).json({
+      message: 'Store item issued',
+      record: issuance,
+    });
+  } catch (error) {
+    console.error('Issue approved store request error:', error);
+    res.status(500).json({ message: 'Server error issuing approved request' });
+  }
+};
+
+// Mark issued item returned (add back inventory)
+const returnStoreItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { quantity, returnedQuantity, remarks } = req.body;
+
+    const issuance = await StoreIssuance.findById(id);
+    if (!issuance) {
+      return res.status(404).json({ message: 'Store issuance record not found' });
+    }
+
+    if (issuance.status !== 'issued') {
+      return res.status(400).json({ message: `Only issued requests can be returned. Current status: ${issuance.status}` });
+    }
+
+    const maxQuantity = issuance.approvedQuantity || issuance.item.quantity;
+    const quantityToReturn = quantity || returnedQuantity || maxQuantity;
+
+    if (quantityToReturn > maxQuantity) {
+      return res.status(400).json({
+        message: `Cannot return more than issued quantity (${maxQuantity})`,
+      });
+    }
+
+    const inventoryItem = await getStoreInventoryItem(issuance.item.name);
     if (inventoryItem) {
-      inventoryItem.quantity += returnedQuantity;
+      inventoryItem.quantity += quantityToReturn;
       inventoryItem.lastUpdatedBy = req.user._id;
       await inventoryItem.save();
     }
 
-    // Populate the issuedBy field for response
-    await issuance.populate('issuedBy', 'name alias role');
+    const previousStatus = issuance.status;
+    issuance.status = 'returned';
+    issuance.returned = true;
+    issuance.returnedQuantity = quantityToReturn;
+    issuance.returnedAt = new Date();
+    issuance.remarks = remarks || issuance.remarks;
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'item_returned',
+      previousStatus,
+      'returned',
+      remarks || `Returned quantity: ${quantityToReturn}`
+    );
+
+    await issuance.save();
+    await populateIssuance(issuance);
 
     res.status(200).json({
       message: 'Item returned successfully',
-      record: issuance
+      record: issuance,
     });
-
   } catch (error) {
     console.error('Return store item error:', error);
     res.status(500).json({ message: 'Server error returning store item' });
   }
 };
 
+// Mark issued item under repair
+const markStoreItemUnderRepair = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remarks } = req.body;
+
+    const issuance = await StoreIssuance.findById(id);
+    if (!issuance) {
+      return res.status(404).json({ message: 'Store issuance record not found' });
+    }
+
+    if (issuance.status !== 'issued') {
+      return res.status(400).json({ message: `Only issued requests can move to under_repair. Current status: ${issuance.status}` });
+    }
+
+    const previousStatus = issuance.status;
+    issuance.status = 'under_repair';
+    issuance.remarks = remarks || issuance.remarks;
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'item_under_repair',
+      previousStatus,
+      'under_repair',
+      remarks || 'Item moved to under repair'
+    );
+
+    await issuance.save();
+    await populateIssuance(issuance);
+
+    res.status(200).json({
+      message: 'Item marked under repair',
+      record: issuance,
+    });
+  } catch (error) {
+    console.error('Mark under repair error:', error);
+    res.status(500).json({ message: 'Server error marking item under repair' });
+  }
+};
+
+// Mark repaired and add inventory back
+const markStoreItemRepaired = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { quantity, remarks } = req.body;
+
+    const issuance = await StoreIssuance.findById(id);
+    if (!issuance) {
+      return res.status(404).json({ message: 'Store issuance record not found' });
+    }
+
+    if (issuance.status !== 'under_repair') {
+      return res.status(400).json({ message: `Only under_repair requests can be marked repaired. Current status: ${issuance.status}` });
+    }
+
+    const maxQuantity = issuance.approvedQuantity || issuance.item.quantity;
+    const repairedQuantity = quantity || maxQuantity;
+
+    if (repairedQuantity > maxQuantity) {
+      return res.status(400).json({
+        message: `Repaired quantity cannot exceed issued quantity (${maxQuantity})`,
+      });
+    }
+
+    const inventoryItem = await getStoreInventoryItem(issuance.item.name);
+    if (inventoryItem) {
+      inventoryItem.quantity += repairedQuantity;
+      inventoryItem.lastUpdatedBy = req.user._id;
+      await inventoryItem.save();
+    }
+
+    const previousStatus = issuance.status;
+    issuance.status = 'repaired';
+    issuance.repairedAt = new Date();
+    issuance.returned = true;
+    issuance.returnedQuantity = repairedQuantity;
+    issuance.remarks = remarks || issuance.remarks;
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'item_repaired',
+      previousStatus,
+      'repaired',
+      remarks || `Repaired quantity: ${repairedQuantity}`
+    );
+
+    await issuance.save();
+    await populateIssuance(issuance);
+
+    res.status(200).json({
+      message: 'Item marked repaired',
+      record: issuance,
+    });
+  } catch (error) {
+    console.error('Mark repaired error:', error);
+    res.status(500).json({ message: 'Server error marking item repaired' });
+  }
+};
+
+// Mark scrapped (no inventory return)
+const markStoreItemScrapped = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remarks } = req.body;
+
+    const issuance = await StoreIssuance.findById(id);
+    if (!issuance) {
+      return res.status(404).json({ message: 'Store issuance record not found' });
+    }
+
+    if (!['issued', 'under_repair'].includes(issuance.status)) {
+      return res.status(400).json({ message: `Only issued/under_repair requests can be scrapped. Current status: ${issuance.status}` });
+    }
+
+    const previousStatus = issuance.status;
+    issuance.status = 'scrapped';
+    issuance.scrappedAt = new Date();
+    issuance.remarks = remarks || issuance.remarks;
+
+    appendHistory(
+      issuance,
+      req.user._id,
+      'item_scrapped',
+      previousStatus,
+      'scrapped',
+      remarks || 'Item scrapped/deprecated'
+    );
+
+    await issuance.save();
+    await populateIssuance(issuance);
+
+    res.status(200).json({
+      message: 'Item marked scrapped',
+      record: issuance,
+    });
+  } catch (error) {
+    console.error('Mark scrapped error:', error);
+    res.status(500).json({ message: 'Server error marking item scrapped' });
+  }
+};
+
 // Get store issuances with filters
 const getStoreIssuances = async (req, res) => {
   try {
-    const { 
-      issuedTo, 
-      department, 
-      returnExpected, 
-      returned, 
-      startDate, 
-      endDate, 
-      page = 1, 
-      perPage = 25 
+    const {
+      issuedTo,
+      department,
+      status,
+      returnExpected,
+      startDate,
+      endDate,
+      page = 1,
+      perPage = 25,
     } = req.query;
 
-    // Build filter object
     const filter = {};
     if (issuedTo) filter.issuedTo = { $regex: issuedTo, $options: 'i' };
     if (department) filter.department = { $regex: department, $options: 'i' };
-    if (returnExpected !== undefined) filter.returnExpected = returnExpected === 'true';
-    if (returned !== undefined) filter.returned = returned === 'true';
-    
+    if (status) filter.status = status;
+    if (returnExpected !== undefined) filter.returnExpected = returnExpected === true || returnExpected === 'true';
+
     if (startDate || endDate) {
       filter.dateIssued = {};
       if (startDate) filter.dateIssued.$gte = new Date(startDate);
       if (endDate) filter.dateIssued.$lte = new Date(endDate);
     }
 
-    // Calculate pagination
-    const skip = (page - 1) * perPage;
+    const skip = (Number(page) - 1) * Number(perPage);
 
-    // Get issuances
     const issuances = await StoreIssuance.find(filter)
       .sort({ dateIssued: -1 })
       .skip(skip)
-      .limit(parseInt(perPage))
+      .limit(Number(perPage))
       .populate('issuedBy', 'name alias role')
+      .populate('approvedBy', 'name alias role')
+      .populate('rejectedBy', 'name alias role')
       .lean();
 
-    // Get total count for pagination info
     const totalCount = await StoreIssuance.countDocuments(filter);
 
     res.status(200).json({
       issuances,
       pagination: {
-        page: parseInt(page),
-        perPage: parseInt(perPage),
+        page: Number(page),
+        perPage: Number(perPage),
         total: totalCount,
-        totalPages: Math.ceil(totalCount / perPage)
-      }
+        totalPages: Math.ceil(totalCount / Number(perPage)),
+      },
     });
-
   } catch (error) {
     console.error('Get store issuances error:', error);
     res.status(500).json({ message: 'Server error retrieving store issuances' });
@@ -182,9 +493,9 @@ const getStoreIssuances = async (req, res) => {
 const getPendingReturns = async (req, res) => {
   try {
     const pendingReturns = await StoreIssuance.find({
+      status: 'issued',
       returnExpected: true,
-      returned: false,
-      returnDate: { $lte: new Date() } // Past due returns
+      returnDate: { $lte: new Date() },
     })
       .sort({ returnDate: 1 })
       .populate('issuedBy', 'name alias role')
@@ -193,9 +504,8 @@ const getPendingReturns = async (req, res) => {
     res.status(200).json({
       message: 'Pending returns retrieved',
       pendingReturns,
-      count: pendingReturns.length
+      count: pendingReturns.length,
     });
-
   } catch (error) {
     console.error('Get pending returns error:', error);
     res.status(500).json({ message: 'Server error retrieving pending returns' });
@@ -208,7 +518,10 @@ const getStoreIssuanceById = async (req, res) => {
     const { id } = req.params;
 
     const issuance = await StoreIssuance.findById(id)
-      .populate('issuedBy', 'name alias role');
+      .populate('issuedBy', 'name alias role')
+      .populate('approvedBy', 'name alias role')
+      .populate('rejectedBy', 'name alias role')
+      .populate('history.by', 'name alias role');
 
     if (!issuance) {
       return res.status(404).json({ message: 'Store issuance record not found' });
@@ -216,9 +529,8 @@ const getStoreIssuanceById = async (req, res) => {
 
     res.status(200).json({
       message: 'Store issuance retrieved',
-      record: issuance
+      record: issuance,
     });
-
   } catch (error) {
     console.error('Get store issuance by ID error:', error);
     res.status(500).json({ message: 'Server error retrieving store issuance' });
@@ -230,7 +542,6 @@ const getIssuanceStats = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // Build date filter
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.dateIssued = {};
@@ -238,35 +549,58 @@ const getIssuanceStats = async (req, res) => {
       if (endDate) dateFilter.dateIssued.$lte = new Date(endDate);
     }
 
-    // Get aggregated stats
-    const stats = await StoreIssuance.aggregate([
+    const statusCounts = await StoreIssuance.aggregate([
+      { $match: dateFilter },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const totals = await StoreIssuance.aggregate([
       { $match: dateFilter },
       {
         $group: {
           _id: null,
-          totalIssuances: { $sum: 1 },
-          totalQuantityIssued: { $sum: '$item.quantity' },
-          returnsExpected: { $sum: { $cond: ['$returnExpected', 1, 0] } },
-          returnsCompleted: { $sum: { $cond: ['$returned', 1, 0] } }
-        }
-      }
+          totalRequests: { $sum: 1 },
+          totalRequestedQuantity: { $sum: '$item.quantity' },
+          totalApprovedQuantity: { $sum: '$approvedQuantity' },
+          totalReturnedQuantity: { $sum: '$returnedQuantity' },
+        },
+      },
     ]);
 
-    const result = stats.length > 0 ? stats[0] : {
-      totalIssuances: 0,
-      totalQuantityIssued: 0,
-      returnsExpected: 0,
-      returnsCompleted: 0
+    const statusMap = {
+      raised: 0,
+      approved: 0,
+      rejected: 0,
+      issued: 0,
+      returned: 0,
+      under_repair: 0,
+      repaired: 0,
+      scrapped: 0,
     };
 
-    // Calculate pending returns
-    result.pendingReturns = result.returnsExpected - result.returnsCompleted;
+    statusCounts.forEach((entry) => {
+      statusMap[entry._id] = entry.count;
+    });
+
+    const base = totals[0] || {
+      totalRequests: 0,
+      totalRequestedQuantity: 0,
+      totalApprovedQuantity: 0,
+      totalReturnedQuantity: 0,
+    };
 
     res.status(200).json({
       message: 'Issuance statistics retrieved',
-      stats: result
+      stats: {
+        ...base,
+        statusCounts: statusMap,
+      },
     });
-
   } catch (error) {
     console.error('Get issuance stats error:', error);
     res.status(500).json({ message: 'Server error retrieving issuance statistics' });
@@ -275,9 +609,15 @@ const getIssuanceStats = async (req, res) => {
 
 module.exports = {
   issueStoreItem,
+  approveStoreIssuance,
+  rejectStoreIssuance,
+  issueApprovedStoreItem,
   returnStoreItem,
+  markStoreItemUnderRepair,
+  markStoreItemRepaired,
+  markStoreItemScrapped,
   getStoreIssuances,
   getPendingReturns,
   getStoreIssuanceById,
-  getIssuanceStats
+  getIssuanceStats,
 };

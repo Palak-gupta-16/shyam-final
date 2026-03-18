@@ -12,6 +12,13 @@ const {
   orderQuerySchema 
 } = require('./orderValidators');
 const { createInventorySchema, updateInventorySchema, addSizeSchema } = require('./inventoryValidators');
+const {
+  issueStoreItemSchema,
+  approveStoreIssuanceSchema,
+  rejectStoreIssuanceSchema,
+  lifecycleUpdateSchema,
+  getStoreIssuancesQuerySchema,
+} = require('./storeValidators');
 
 module.exports = {
   // Auth validators
@@ -32,5 +39,12 @@ module.exports = {
   // Inventory validators
   createInventorySchema,
   updateInventorySchema,
-  addSizeSchema
+  addSizeSchema,
+
+  // Store validators
+  issueStoreItemSchema,
+  approveStoreIssuanceSchema,
+  rejectStoreIssuanceSchema,
+  lifecycleUpdateSchema,
+  getStoreIssuancesQuerySchema,
 };

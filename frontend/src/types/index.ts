@@ -64,10 +64,12 @@ export interface Order {
     fare?: {
       amount?: number;
       paidBy?: 'our_side' | 'other_party';
+      paymentStatus?: 'paid' | 'unpaid';
       notes?: string;
     };
     invoiceNotes?: string;
     pdfUrl?: string;
+    generatedAt?: string;
   };
   createdBy: string;
   history: OrderHistory[];
@@ -195,11 +197,15 @@ export interface GatePass {
   vehicle: {
     number: string;
     driverName: string;
+    driverContact: string;
   };
   purpose: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'pending_approval' | 'approved' | 'rejected' | 'inside_factory' | 'exited';
+  relatedOrderId?: string;
   approvedBy?: User;
   approvedAt?: string;
+  entryTime?: string;
+  exitTime?: string;
   rejectedBy?: User;
   rejectedAt?: string;
   rejectionReason?: string;
@@ -271,6 +277,16 @@ export interface MillDailySummary {
   createdBy: User;
   productionHours?: number;
   efficiency?: number;
+  electricity?: {
+    startReading?: number;
+    endReading?: number;
+    consumption?: number;
+    capturedAt?: string;
+    capturedBy?: User;
+  };
+  isSubmitted?: boolean;
+  submittedAt?: string;
+  submittedBy?: User;
   remarks?: string;
   rawMaterials?: RawMaterialUsage[];
   finishedProduct?: {
@@ -287,6 +303,8 @@ export interface MillDailySummary {
 export interface StoreIssuance {
   _id: string;
   issuedBy: User;
+  approvedBy?: User;
+  rejectedBy?: User;
   issuedTo: string;
   item: {
     name: string;
@@ -294,7 +312,13 @@ export interface StoreIssuance {
     unit: string;
     description?: string;
   };
+  approvedQuantity?: number;
+  status: 'raised' | 'approved' | 'rejected' | 'issued' | 'returned' | 'under_repair' | 'repaired' | 'scrapped';
   dateIssued: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  issuedAt?: string;
   purpose?: string;
   department?: string;
   employeeId?: string;
@@ -302,6 +326,17 @@ export interface StoreIssuance {
   returnDate?: string;
   returned: boolean;
   returnedQuantity?: number;
+  returnedAt?: string;
+  repairedAt?: string;
+  scrappedAt?: string;
+  history?: Array<{
+    by: User;
+    action: string;
+    fromStatus?: string;
+    toStatus?: string;
+    note?: string;
+    at: string;
+  }>;
   remarks?: string;
   createdAt: string;
   updatedAt: string;
@@ -330,6 +365,7 @@ export interface PaginationInfo {
 export interface PaginatedResponse<T> {
   orders?: T[];
   gatePasses?: T[];
+  issuances?: T[];
   pagination: PaginationInfo;
 }
 

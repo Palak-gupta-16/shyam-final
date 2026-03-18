@@ -44,6 +44,17 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
 
     if (order && actionType === 'complete-loading') {
       setLoadingFormState(createInitialLoadingFormState(order));
+      return;
+    }
+
+    if (order && actionType === 'add-fare') {
+      setFormData({
+        fareAmount: order.invoice?.fare?.amount ?? '',
+        paidBy: order.invoice?.fare?.paidBy ?? '',
+        paymentStatus: order.invoice?.fare?.paymentStatus ?? 'unpaid',
+        fareNotes: order.invoice?.fare?.notes ?? ''
+      });
+      setLoadingFormState(null);
     } else {
       setLoadingFormState(null);
     }
@@ -124,6 +135,34 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
           if (notesValue) {
             processedData.invoiceNotes = notesValue;
           }
+          break;
+        }
+        case 'add-fare': {
+          const fareAmountValue = Number(formData.fareAmount);
+          if (Number.isNaN(fareAmountValue) || fareAmountValue <= 0) {
+            setFormErrors(['Fare amount must be greater than 0.']);
+            setLoading(false);
+            return;
+          }
+
+          if (!formData.paidBy || !['our_side', 'other_party'].includes(formData.paidBy)) {
+            setFormErrors(['Please select who pays the fare.']);
+            setLoading(false);
+            return;
+          }
+
+          if (!formData.paymentStatus || !['paid', 'unpaid'].includes(formData.paymentStatus)) {
+            setFormErrors(['Please select fare payment status.']);
+            setLoading(false);
+            return;
+          }
+
+          processedData = {
+            fareAmount: fareAmountValue,
+            paidBy: formData.paidBy,
+            paymentStatus: formData.paymentStatus,
+            fareNotes: typeof formData.fareNotes === 'string' ? formData.fareNotes.trim() : ''
+          };
           break;
         }
         case 'empty-weight': {
@@ -444,6 +483,67 @@ const OrderActionModal: React.FC<OrderActionModalProps> = ({
                 value={formData.invoiceNotes || ''}
                 onChange={(e) => setFormData((prev) => ({ ...prev, invoiceNotes: e.target.value }))}
                 placeholder="Additional invoice details..."
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+        );
+
+      case 'add-fare':
+        return (
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h4 className="font-medium text-blue-900">Add Fare Details</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Fare is mandatory before invoice generation or exit.
+              </p>
+            </div>
+
+            <Input
+              label="Fare Amount"
+              type="number"
+              step="1"
+              value={formData.fareAmount || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, fareAmount: e.target.value }))}
+              required
+              placeholder="Enter fare amount"
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Paid By</label>
+              <select
+                value={formData.paidBy || ''}
+                onChange={(e) => setFormData((prev) => ({ ...prev, paidBy: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="">Select</option>
+                <option value="our_side">Our Side</option>
+                <option value="other_party">Other Party</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Status</label>
+              <select
+                value={formData.paymentStatus || ''}
+                onChange={(e) => setFormData((prev) => ({ ...prev, paymentStatus: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                required
+              >
+                <option value="">Select</option>
+                <option value="paid">Paid</option>
+                <option value="unpaid">Unpaid</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fare Notes</label>
+              <textarea
+                value={formData.fareNotes || ''}
+                onChange={(e) => setFormData((prev) => ({ ...prev, fareNotes: e.target.value }))}
+                placeholder="Add remarks for fare entry"
                 rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
